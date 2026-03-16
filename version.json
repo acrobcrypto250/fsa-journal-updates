@@ -1,9 +1,10 @@
 {
-  "current_version": "2.1.1",
+  "current_version": "2.1.2",
   "release_date": "2026-03-16",
-  "release_notes": "Fixed unknown date display in updater",
+  "release_notes": "Security fix — removed default credentials from login page",
   "changelog": [
-    "Fixed unknown date showing in updater page"
+    "Removed default credentials hint from login page",
+    "Fixed unknown date in updater"
   ],
   "files": [
     {"path": "index.php", "critical": false},
