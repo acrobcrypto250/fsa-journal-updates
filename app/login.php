@@ -59,7 +59,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-hei
       <button type="submit" class="btn">LOGIN →</button>
     </form>
   </div>
-  <div class="hint">Default: <span>acrob</span> / <span>password</span> — change in Settings</div>
+
 </div>
 </body>
 </html>
