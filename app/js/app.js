@@ -566,26 +566,36 @@ async function importExcel(){
             const wb=XLSX.read(e.target.result,{type:'binary'});
             const ws=wb.Sheets[wb.SheetNames[0]];
             const data=XLSX.utils.sheet_to_json(ws,{defval:''});
-            const trades=data.map(row=>({
-                trade_date: row['Date']||row['trade_date']||'',
-                session: row['Session']||row['session']||'London',
-                pair: row['Pair']||row['pair']||'',
-                direction: row['Direction']||row['direction']||'Long',
-                entry_price: row['Entry']||row['entry_price']||'',
-                stop_loss: row['Stop Loss']||row['stop_loss']||'',
-                take_profit: row['Take Profit']||row['take_profit']||'',
-                exit_price: row['Exit Price']||row['exit_price']||'',
-                lot_size: row['Lot Size']||row['lot_size']||'',
-                pnl: row['P&L $']||row['pnl']||0,
-                fees: row['Fees $']||row['fees']||0,
-                r_multiple: row['R Multiple']||row['r_multiple']||0,
-                result: row['Result']||row['result']||'',
-                confidence: row['Confidence']||row['confidence']||'',
-                exec_score: row['Exec Score']||row['exec_score']||'',
-                fib_level: String(row['Fib Level']||row['fib_level']||''),
-                fsa_rules: row['FSA Rules']||row['fsa_rules']||'',
-                notes: row['Notes']||row['notes']||''
-            })).filter(t=>t.trade_date&&t.pair);
+            const trades=data.map(row=>{
+                // Handle date — could be a date object string or formatted string
+                let trade_date = row['Date']||row['trade_date']||'';
+                if(trade_date) {
+                    // If it looks like "2026-03-08 00:00:00" extract date part
+                    const d = new Date(trade_date);
+                    if(!isNaN(d)) trade_date = d.toISOString().split('T')[0];
+                    else trade_date = String(trade_date).split(' ')[0];
+                }
+                return {
+                    trade_date,
+                    session: row['Session']||row['session']||'London',
+                    pair: row['Pair']||row['pair']||'',
+                    direction: row['Direction']||row['direction']||'Long',
+                    entry_price: row['Entry']||row['entry_price']||'',
+                    stop_loss: row['Stop Loss']||row['stop_loss']||'',
+                    take_profit: row['Take Profit']||row['take_profit']||'',
+                    exit_price: row['Exit Price']||row['exit_price']||'',
+                    lot_size: row['Lot Size']||row['lot_size']||'',
+                    pnl: row['P&L $']||row['pnl']||0,
+                    fees: row['Fees $']||row['fees']||0,
+                    r_multiple: row['R Multiple']||row['r_multiple']||0,
+                    result: row['Result']||row['result']||'',
+                    confidence: row['Confidence']||row['confidence']||'',
+                    exec_score: row['Exec Score']||row['exec_score']||'',
+                    fib_level: String(row['Fib Level']||row['fib_level']||''),
+                    fsa_rules: row['FSA Rules']||row['fsa_rules']||'',
+                    notes: row['Notes']||row['notes']||''
+                };
+            }).filter(t=>t.trade_date&&t.trade_date!='Invalid Date'&&t.pair&&String(t.pair).trim()!='');
             if(!trades.length){toast('No valid trades found in file','error');return;}
             const r=await api('import_trades','POST',{trades});
             toast(`Imported ${r.imported} trades! ✅`);
