@@ -208,16 +208,6 @@ function renderHoursHeatmap(data) {
 }
 
 // ── TRADE LOG ────────────────────────────────────────────
-async function loadPairs() {
-    allPairs = await api('get_pairs');
-    const selects = document.querySelectorAll('.pair-select');
-    selects.forEach(sel => {
-        const cur = sel.value;
-        sel.innerHTML = allPairs.map(p=>`<option value="${p.symbol}">${p.symbol}</option>`).join('');
-        if(cur) sel.value = cur;
-    });
-}
-
 async function loadTrades() {
     const pair = document.getElementById('filter-pair')?.value||'';
     const result = document.getElementById('filter-result')?.value||'';
@@ -232,6 +222,22 @@ async function loadTrades() {
     if(params.length) url+='&'+params.join('&');
     allTrades = await api(url);
     renderTradesTable(allTrades);
+}
+
+async function loadPairs() {
+    allPairs = await api('get_pairs');
+    const selects = document.querySelectorAll('.pair-select');
+    selects.forEach(sel => {
+        const cur = sel.value;
+        // For filter dropdowns keep All Pairs option
+        if(sel.id === 'filter-pair') {
+            sel.innerHTML = '<option value="">All Pairs</option>' + 
+                allPairs.map(p=>`<option value="${p.symbol}">${p.symbol}</option>`).join('');
+        } else {
+            sel.innerHTML = allPairs.map(p=>`<option value="${p.symbol}">${p.symbol}</option>`).join('');
+        }
+        if(cur) sel.value = cur;
+    });
 }
 
 function renderTradesTable(trades) {
@@ -333,30 +339,52 @@ async function saveTrade() {
 function loadCalculator(){
     const u=currentUser;
     const balEl=document.getElementById('calc-balance');
-    const riskEl=document.getElementById('calc-risk-pct');
     if(balEl) balEl.value=u.account_balance||10000;
-    if(riskEl) riskEl.value=u.risk_per_trade_pct||0.5;
+    const riskEl=document.getElementById('calc-risk-pct');
+    if(riskEl) riskEl.value=u.risk_per_trade_pct||0.25;
 }
 
-async function calcRisk(){
-    const data={
-        balance:document.getElementById('calc-balance').value,
-        risk_pct:document.getElementById('calc-risk-pct').value,
-        entry:document.getElementById('calc-entry').value,
-        sl:document.getElementById('calc-sl').value,
-        tp:document.getElementById('calc-tp').value||0
-    };
-    if(!data.entry||!data.sl){toast('Enter entry and stop loss','warning');return;}
-    const r=await api('calculate_risk','POST',data);
-    if(r.error){toast(r.error,'error');return;}
-    document.getElementById('res-risk').textContent=fmt(r.risk_amount);
-    document.getElementById('res-lot').textContent=r.lot_size;
-    document.getElementById('res-sl-dist').textContent=r.sl_distance;
-    document.getElementById('res-rr').textContent=r.rr_ratio?r.rr_ratio+':1':'—';
-    document.getElementById('res-profit').textContent=r.rr_ratio?fmt(r.potential_profit):'—';
-    document.getElementById('calc-results').style.display='block';
-    // Fill into trade modal
-    document.getElementById('f-lot_size').value=r.lot_size;
+function calcSimple(){
+    const balance = parseFloat(document.getElementById('calc-balance').value||0);
+    const slPct   = parseFloat(document.getElementById('calc-sl-pct').value||0);
+    const riskPct = parseFloat(document.getElementById('calc-risk-pct').value||0);
+    const leverage= parseFloat(document.getElementById('calc-leverage').value||1);
+
+    if(!balance||!slPct||!riskPct){
+        document.getElementById('calc-results-inner').innerHTML='<div style="color:var(--red)">Please fill all fields</div>';
+        return;
+    }
+
+    const riskAmt     = balance * riskPct / 100;
+    const positionSize= (riskAmt / (slPct / 100));
+    const lotSize     = positionSize / balance * leverage;
+    const marginUsed  = positionSize / leverage;
+
+    document.getElementById('calc-results-inner').innerHTML = `
+        <div style="margin-bottom:12px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Risk Amount</div>
+            <div style="font-family:var(--font-head);font-size:28px;color:var(--red)">$${riskAmt.toFixed(2)}</div>
+        </div>
+        <div style="height:1px;background:var(--border);margin:12px 0"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left">
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Position Size</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--green)">$${positionSize.toFixed(2)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Lot Size</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--blue2)">${lotSize.toFixed(4)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Margin Used</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--orange)">$${marginUsed.toFixed(2)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Leverage</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--purple)">${leverage}x</div>
+            </div>
+        </div>
+    `;
 }
 
 // ── FSA CHECKLIST ─────────────────────────────────────────
@@ -559,49 +587,116 @@ async function saveSettings(){
 async function importExcel(){
     const file=document.getElementById('import-file').files[0];
     if(!file){toast('Select a file first','warning');return;}
-    // We read CSV/Excel via SheetJS
+
     const reader=new FileReader();
     reader.onload=async e=>{
         try {
-            const wb=XLSX.read(e.target.result,{type:'binary'});
-            const ws=wb.Sheets[wb.SheetNames[0]];
-            const data=XLSX.utils.sheet_to_json(ws,{defval:''});
-            const trades=data.map(row=>{
-                // Handle date — could be a date object string or formatted string
-                let trade_date = row['Date']||row['trade_date']||'';
-                if(trade_date) {
-                    // If it looks like "2026-03-08 00:00:00" extract date part
-                    const d = new Date(trade_date);
-                    if(!isNaN(d)) trade_date = d.toISOString().split('T')[0];
-                    else trade_date = String(trade_date).split(' ')[0];
+            // Read workbook
+            const wb = XLSX.read(e.target.result, {type:'binary', cellDates:false, raw:true});
+
+            // Find Trade Log sheet
+            const sheetName = wb.SheetNames.find(n=>n.includes('Trade'))||wb.SheetNames[0];
+            const ws = wb.Sheets[sheetName];
+
+            // Read as array of arrays (raw — no header detection)
+            const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+
+            // Find header row (the row that contains 'Date' and 'Pair')
+            let headerRowIdx = -1;
+            let headerMap = {};
+            for(let i=0; i<rows.length; i++){
+                const row = rows[i];
+                const hasDate = row.some(c=>String(c).trim()==='Date');
+                const hasPair = row.some(c=>String(c).trim()==='Pair');
+                if(hasDate && hasPair){
+                    headerRowIdx = i;
+                    row.forEach((cell,idx)=>{ if(cell) headerMap[String(cell).trim()] = idx; });
+                    break;
                 }
-                return {
+            }
+
+            if(headerRowIdx === -1){
+                toast('Cannot find header row with Date and Pair columns','error');
+                return;
+            }
+
+            // Helper to get cell value by column name
+            const get = (row, name) => {
+                const idx = headerMap[name];
+                return idx !== undefined ? row[idx] : '';
+            };
+
+            // Parse date from various formats
+            const parseDate = (val) => {
+                if(!val && val!==0) return '';
+                const s = String(val).trim();
+                if(!s || s==='') return '';
+                // Excel serial number (e.g. 46467) — numbers between 40000-50000
+                const num = parseFloat(s);
+                if(!isNaN(num) && num > 40000 && num < 60000) {
+                    const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+                    return d.toISOString().split('T')[0];
+                }
+                // dd/mm/yyyy
+                if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+                    const [dd,mm,yyyy] = s.split('/');
+                    return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+                }
+                // yyyy-mm-dd
+                if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0,10);
+                // Any other date string
+                const d = new Date(s);
+                if(!isNaN(d)) return d.toISOString().split('T')[0];
+                return '';
+            };
+
+            // Build trades from data rows
+            const trades = [];
+            for(let i = headerRowIdx+1; i < rows.length; i++){
+                const row = rows[i];
+                const pair = String(get(row,'Pair')||'').trim();
+                const dateRaw = get(row,'Date');
+                if(!pair || !dateRaw) continue; // skip empty rows
+
+                const trade_date = parseDate(dateRaw);
+                if(!trade_date) continue;
+
+                trades.push({
                     trade_date,
-                    session: row['Session']||row['session']||'London',
-                    pair: row['Pair']||row['pair']||'',
-                    direction: row['Direction']||row['direction']||'Long',
-                    entry_price: row['Entry']||row['entry_price']||'',
-                    stop_loss: row['Stop Loss']||row['stop_loss']||'',
-                    take_profit: row['Take Profit']||row['take_profit']||'',
-                    exit_price: row['Exit Price']||row['exit_price']||'',
-                    lot_size: row['Lot Size']||row['lot_size']||'',
-                    pnl: row['P&L $']||row['pnl']||0,
-                    fees: row['Fees $']||row['fees']||0,
-                    r_multiple: row['R Multiple']||row['r_multiple']||0,
-                    result: row['Result']||row['result']||'',
-                    confidence: row['Confidence']||row['confidence']||'',
-                    exec_score: row['Exec Score']||row['exec_score']||'',
-                    fib_level: String(row['Fib Level']||row['fib_level']||''),
-                    fsa_rules: row['FSA Rules']||row['fsa_rules']||'',
-                    notes: row['Notes']||row['notes']||''
-                };
-            }).filter(t=>t.trade_date&&t.trade_date!='Invalid Date'&&t.pair&&String(t.pair).trim()!='');
-            if(!trades.length){toast('No valid trades found in file','error');return;}
-            const r=await api('import_trades','POST',{trades});
+                    session:     String(get(row,'Session')||'London'),
+                    pair,
+                    direction:   String(get(row,'Direction')||'Long'),
+                    entry_price: get(row,'Entry')||'',
+                    stop_loss:   get(row,'Stop Loss')||'',
+                    take_profit: get(row,'Take Profit')||'',
+                    exit_price:  get(row,'Exit Price')||'',
+                    lot_size:    get(row,'Lot Size')||'',
+                    pnl:         get(row,'P&L $')||0,
+                    fees:        get(row,'Fees $')||0,
+                    r_multiple:  get(row,'R Multiple')||0,
+                    result:      String(get(row,'Result')||''),
+                    confidence:  String(get(row,'Confidence')||''),
+                    exec_score:  get(row,'Exec Score')||'',
+                    fib_level:   String(get(row,'Fib Level')||''),
+                    fsa_rules:   String(get(row,'FSA Rules')||''),
+                    notes:       String(get(row,'Notes')||'')
+                });
+            }
+
+            if(!trades.length){
+                toast('No valid trades found — check your file has Date and Pair columns','error');
+                return;
+            }
+
+            const r = await api('import_trades','POST',{trades});
             toast(`Imported ${r.imported} trades! ✅`);
             document.getElementById('import-modal').classList.remove('open');
             loadTrades(); loadDashboard();
-        } catch(err){toast('Error reading file: '+err.message,'error');}
+
+        } catch(err){
+            toast('Error: '+err.message,'error');
+            console.error(err);
+        }
     };
     reader.readAsBinaryString(file);
 }
