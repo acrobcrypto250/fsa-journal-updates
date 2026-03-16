@@ -1,10 +1,40 @@
 {
-  "current_version": "2.0.2",
+  "current_version": "2.1.0",
   "release_date": "2026-03-16",
-  "release_notes": "Fixed save trade, fixed import, fixed calculator, live server launch",
+  "release_notes": "Fixed save trade, import Excel, calculator, filter dropdown",
   "changelog": [
-    "Fixed save trade function — was silently failing",
-    "Fixed Excel import — now reads headers from correct row",
-    "Fixed pair filter — defaults to All Pairs",
+    "Fixed save trade — was silently failing due to PHP syntax error",
+    "Fixed Excel import — now reads correct header row and all date formats",
+    "Fixed pair filter — now defaults to All Pairs",
     "Simplified Risk Calculator — 4 inputs only",
-    "App is now live on journal.acrobcrypto.com"
+    "Removed Pre-Trade Check button from topbar",
+    "Added Check Update link to sidebar"
+  ],
+  "files": [
+    {"path": "index.php", "critical": false},
+    {"path": "login.php", "critical": false},
+    {"path": "logout.php", "critical": false},
+    {"path": "updater.php", "critical": false},
+    {"path": "includes/api.php", "critical": false},
+    {"path": "includes/config.php", "critical": true},
+    {"path": "css/style.css", "critical": false},
+    {"path": "js/app.js", "critical": false}
+  ],
+  "db_migrations": [],
+  "min_php": "7.4",
+  "base_url": "https://raw.githubusercontent.com/acrobcrypto250/fsa-journal-updates/main/app"
+}
+
+  "files": [
+    {"path": "index.php", "critical": false},
+    {"path": "login.php", "critical": false},
+    {"path": "logout.php", "critical": false},
+    {"path": "includes/api.php", "critical": false},
+    {"path": "includes/config.php", "critical": true},
+    {"path": "css/style.css", "critical": false},
+    {"path": "js/app.js", "critical": false}
+  ],
+  "db_migrations": [],
+  "min_php": "7.4",
+  "base_url": "https://raw.githubusercontent.com/acrobcrypto250/fsa-journal-updates/main/app"
+}
