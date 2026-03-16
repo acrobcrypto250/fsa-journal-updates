@@ -96,18 +96,14 @@ case 'update_trade':
     if ($action==='update_trade') {
         $sets = implode(',', array_map(fn($c)=>"$c=?", $cols));
         $sets .= ",pnl=?,net_pnl=?,r_multiple=?,screenshot=?";
+        $vals[] = round($pnl,4); $vals[] = round($net,4); $vals[] = $r; $vals[] = $screenshot;
         $vals[] = $d['id']; $vals[] = $uid;
         $db->prepare("UPDATE trades SET $sets WHERE id=? AND user_id=?")->execute($vals);
     } else {
-        $ph = implode(',',array_fill(0,count($cols)+4,'?'));
-        $allcols = implode(',',$cols).",pnl,net_pnl,r_multiple,screenshot";
-        $vals[] = $uid;
-        $db->prepare("INSERT INTO trades (user_id,$allcols) VALUES (?,$ph)")->execute(array_merge([$uid],$vals[0..count($vals)-2]));
-        // fix: rebuild properly
-        $vals2 = array_map(fn($k)=>($d[$k]??null)?:null,$cols);
-        $vals2 = array_merge([$uid], $vals2, [round($pnl,4),round($net,4),$r,$screenshot]);
-        $ph2 = implode(',',array_fill(0,count($cols)+4,'?'));
-        $allcols2 = implode(',',$cols).",pnl,net_pnl,r_multiple,screenshot";
+        $vals2 = array_map(fn($k)=>($d[$k]??null)?:null, $cols);
+        $vals2 = array_merge([$uid], $vals2, [round($pnl,4), round($net,4), $r, $screenshot]);
+        $ph2 = implode(',', array_fill(0, count($cols)+4, '?'));
+        $allcols2 = implode(',', $cols).",pnl,net_pnl,r_multiple,screenshot";
         $db->prepare("INSERT INTO trades (user_id,$allcols2) VALUES (?,{$ph2})")->execute($vals2);
     }
     // Update daily limits
