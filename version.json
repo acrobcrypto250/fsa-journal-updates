@@ -1,14 +1,9 @@
 {
-  "current_version": "2.2.0",
+  "current_version": "2.2.2",
   "release_date": "2026-03-17",
-  "release_notes": "Media system with future-proof folder structure",
+  "release_notes": "Removed # number column from trade table",
   "changelog": [
-    "Media folder structure: media/uploads/{user_id}/ for trade screenshots",
-    "Future ready: media/avatars/, media/reports/, media/blog/ ready to add",
-    "Each user has own protected folder",
-    "View Trade button — full trade review with chart",
-    "Click chart to open full size in new tab",
-    "Fixed session authentication on shared hosting"
+    "Removed # column from trade log table — cleaner view"
   ],
   "files": [
     {"path": "index.php", "critical": false},
