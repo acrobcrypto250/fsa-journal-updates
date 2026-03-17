@@ -1,9 +1,10 @@
 {
-  "current_version": "2.2.2",
+  "current_version": "2.2.3",
   "release_date": "2026-03-17",
-  "release_notes": "Removed # number column from trade table",
+  "release_notes": "Fixed screenshot upload on shared hosting",
   "changelog": [
-    "Removed # column from trade log table — cleaner view"
+    "Fixed screenshot upload — better error handling",
+    "Screenshot saves to media/uploads/{user_id}/ folder"
   ],
   "files": [
     {"path": "index.php", "critical": false},
