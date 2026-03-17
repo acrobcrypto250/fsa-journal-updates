@@ -1,309 +1,825 @@
-<?php
-define('IS_API', true);
-header('Content-Type: application/json');
-require_once 'config.php';
-requireLogin();
+const API = 'includes/api.php';
+let charts = {}, allTrades = [], allPairs = [], currentUser = {}, stratTrades = [], allReviews = [];
 
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
-$db = getDB();
-$uid = uid();
+// ── HELPERS ──────────────────────────────────────────────
+async function api(action, method='GET', data=null, isForm=false) {
+    const opts = { method, headers: isForm ? {} : {'Content-Type':'application/json'} };
+    if (data) opts.body = isForm ? data : JSON.stringify(data);
+    const res = await fetch(`${API}?action=${action}`, opts);
+    return res.json();
+}
+function fmt(n,prefix='$'){
+    if(n===null||n===undefined||n==='') return '—';
+    const v=parseFloat(n); return (v>=0?prefix:'-'+prefix)+Math.abs(v).toFixed(2);
+}
+function fmtPct(n){return parseFloat(n).toFixed(1)+'%';}
+function fmtR(n){return parseFloat(n).toFixed(2)+'R';}
+function pnlCls(n){return parseFloat(n)>=0?'pnl-pos':'pnl-neg';}
+function resultBadge(r){
+    if(!r) return '—';
+    const m={Win:'win',Loss:'loss','Break Even':'be'};
+    return `<span class="badge badge-${m[r]||''}">${r}</span>`;
+}
+function toast(msg,type='success'){
+    const t=document.getElementById('toast');
+    t.textContent=msg; t.className=`toast ${type} show`;
+    setTimeout(()=>t.className='toast',2800);
+}
+function destroyCharts(...keys){keys.forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});}
+function chartOpts(extra={}){
+    return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8892b0',font:{size:11},boxWidth:12}}},scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}, ...extra};
+}
 
-switch ($action) {
-
-// ── AUTH ─────────────────────────────────────────────────
-case 'get_user':
-    echo json_encode(currentUser()); break;
-
-case 'update_settings':
-    $d = json_decode(file_get_contents('php://input'),true);
-    $fields = ['display_name','account_balance','starting_balance','max_drawdown_pct','daily_loss_limit','risk_per_trade_pct','prop_firm','challenge_phase','avatar_color'];
-    $sets = implode(',', array_map(fn($f)=>"$f=?", $fields));
-    $vals = array_map(fn($f)=>$d[$f]??null, $fields);
-    $vals[] = $uid;
-    $db->prepare("UPDATE users SET $sets WHERE id=?")->execute($vals);
-    if (!empty($d['new_password'])) {
-        $db->prepare("UPDATE users SET password=? WHERE id=?")->execute([password_hash($d['new_password'],PASSWORD_DEFAULT),$uid]);
-    }
-    echo json_encode(['success'=>true]); break;
-
-// ── PAIRS ────────────────────────────────────────────────
-case 'get_pairs':
-    $s = $db->prepare("SELECT * FROM pairs WHERE user_id=? AND active=1 ORDER BY symbol");
-    $s->execute([$uid]); echo json_encode($s->fetchAll()); break;
-
-case 'add_pair':
-    $d = json_decode(file_get_contents('php://input'),true);
-    $sym = strtoupper(trim($d['symbol']??''));
-    if (!$sym) { echo json_encode(['error'=>'Symbol required']); break; }
-    $check = $db->prepare("SELECT id FROM pairs WHERE user_id=? AND symbol=?");
-    $check->execute([$uid,$sym]);
-    if ($check->fetch()) { echo json_encode(['error'=>'Pair already exists']); break; }
-    $db->prepare("INSERT INTO pairs (user_id,symbol) VALUES (?,?)")->execute([$uid,$sym]);
-    echo json_encode(['success'=>true,'id'=>$db->lastInsertId()]); break;
-
-case 'delete_pair':
-    $d = json_decode(file_get_contents('php://input'),true);
-    $db->prepare("UPDATE pairs SET active=0 WHERE id=? AND user_id=?")->execute([$d['id'],$uid]);
-    echo json_encode(['success'=>true]); break;
-
-// ── TRADES ───────────────────────────────────────────────
-case 'get_trades':
-    $where = "WHERE user_id=?"; $params = [$uid];
-    if (!empty($_GET['pair'])) { $where .= " AND pair=?"; $params[] = $_GET['pair']; }
-    if (!empty($_GET['result'])) { $where .= " AND result=?"; $params[] = $_GET['result']; }
-    if (!empty($_GET['from'])) { $where .= " AND trade_date>=?"; $params[] = $_GET['from']; }
-    if (!empty($_GET['to'])) { $where .= " AND trade_date<=?"; $params[] = $_GET['to']; }
-    $s = $db->prepare("SELECT * FROM trades $where ORDER BY trade_date DESC, id DESC");
-    $s->execute($params); echo json_encode($s->fetchAll()); break;
-
-case 'add_trade':
-case 'update_trade':
-    // Handle both JSON and FormData
-    $isForm = !empty($_FILES) || !empty($_POST);
-    if ($isForm) {
-        $d = $_POST;
-    } else {
-        $d = json_decode(file_get_contents('php://input'), true) ?? [];
-    }
-    $pnl = 0;
-    if (!empty($d['exit_price']) && !empty($d['entry_price']) && !empty($d['lot_size'])) {
-        $pnl = $d['direction']==='Long'
-            ? ($d['exit_price']-$d['entry_price'])*$d['lot_size']
-            : ($d['entry_price']-$d['exit_price'])*$d['lot_size'];
-    }
-    $fees = floatval($d['fees']??0);
-    $net = $pnl - $fees;
-    $r = 0;
-    if (!empty($d['entry_price']) && !empty($d['stop_loss']) && $d['entry_price']!=$d['stop_loss']) {
-        $sld = abs($d['entry_price']-$d['stop_loss']);
-        if (($d['result']??'')==='Loss') $r=-1;
-        elseif (($d['result']??'')==='Break Even') $r=0;
-        elseif (!empty($d['exit_price'])) {
-            $r = $d['direction']==='Long'
-                ? ($d['exit_price']-$d['entry_price'])/$sld
-                : ($d['entry_price']-$d['exit_price'])/$sld;
-            $r = round($r,2);
-        }
-    }
-    // Handle screenshot upload — stored in media/uploads/{user_id}/
-    $screenshot = isset($d['screenshot']) && $d['screenshot'] ? $d['screenshot'] : null;
-    if (!empty($_FILES['screenshot']) && $_FILES['screenshot']['error'] === UPLOAD_ERR_OK) {
-        $ext = strtolower(pathinfo($_FILES['screenshot']['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg','jpeg','png','gif','webp'];
-        if (in_array($ext, $allowed)) {
-            // Build path directly — do not rely on config constant
-            $media_dir = dirname(dirname(__FILE__)) . '/media/uploads/' . $uid . '/';
-            if (!is_dir($media_dir)) {
-                mkdir($media_dir, 0755, true);
-            }
-            $fn = 'trade_' . time() . '_' . uniqid() . '.' . $ext;
-            if (move_uploaded_file($_FILES['screenshot']['tmp_name'], $media_dir . $fn)) {
-                $screenshot = $fn;
-            }
-        }
-    }
-    $cols = ['trade_date','session','time_in','time_out','pair','direction','entry_price','stop_loss','take_profit','exit_price','lot_size','risk_amount','fees','result','confidence','exec_score','fib_level','fsa_rules','notes'];
-    
-    if ($action==='update_trade') {
-        $update_vals = array_map(fn($k)=>($d[$k]??null)?:null, $cols);
-        $update_vals[] = round($pnl,4); 
-        $update_vals[] = round($net,4); 
-        $update_vals[] = $r; 
-        $update_vals[] = $screenshot;
-        $update_vals[] = $d['id']; 
-        $update_vals[] = $uid;
-        $sets = implode(',', array_map(fn($c)=>"$c=?", $cols));
-        $sets .= ",pnl=?,net_pnl=?,r_multiple=?,screenshot=?";
-        $db->prepare("UPDATE trades SET $sets WHERE id=? AND user_id=?")->execute($update_vals);
-    } else {
-        $vals2 = array_map(fn($k)=>($d[$k]??null)?:null, $cols);
-        $vals2 = array_merge([$uid], $vals2, [round($pnl,4), round($net,4), $r, $screenshot]);
-        $ph2 = implode(',', array_fill(0, count($cols)+4, '?'));
-        $allcols2 = implode(',', $cols).",pnl,net_pnl,r_multiple,screenshot";
-        $db->prepare("INSERT INTO trades (user_id,$allcols2) VALUES (?,{$ph2})")->execute($vals2);
-    }
-    // Update daily limits
-    $dl_date = $d['trade_date']??date('Y-m-d');
-    $db->prepare("INSERT INTO daily_limits (user_id,log_date,daily_pnl,trades_count) VALUES (?,?,?,1) ON DUPLICATE KEY UPDATE daily_pnl=daily_pnl+?,trades_count=trades_count+1")
-       ->execute([$uid,$dl_date,round($net,4),round($net,4)]);
-    echo json_encode(['success'=>true,'id'=>$db->lastInsertId()]); break;
-
-case 'delete_trade':
-    $d = json_decode(file_get_contents('php://input'),true);
-    // Get screenshot to delete
-    $s = $db->prepare("SELECT screenshot FROM trades WHERE id=? AND user_id=?");
-    $s->execute([$d['id'],$uid]); $t=$s->fetch();
-    if ($t && $t['screenshot']) {
-        $media_dir = getMediaDir($uid);
-        if (file_exists($media_dir.$t['screenshot'])) {
-            unlink($media_dir.$t['screenshot']);
-        }
-    }
-    $db->prepare("DELETE FROM trades WHERE id=? AND user_id=?")->execute([$d['id'],$uid]);
-    echo json_encode(['success'=>true]); break;
-
-// ── STATS ────────────────────────────────────────────────
-case 'get_stats':
-    $month = $_GET['month'] ?? null;
-    $year  = $_GET['year']  ?? null;
-    $where = "WHERE user_id=?"; $p = [$uid];
-    if ($month && $year) { $where .= " AND MONTH(trade_date)=? AND YEAR(trade_date)=?"; $p[]=$month; $p[]=$year; }
-
-    $q = fn($sql) => $db->prepare($sql);
-    $qv = function($sql,$p) use ($db) { $s=$db->prepare($sql); $s->execute($p); return $s->fetchColumn(); };
-    $qa = function($sql,$p) use ($db) { $s=$db->prepare($sql); $s->execute($p); return $s->fetchAll(); };
-
-    $stats = [];
-    $stats['total_trades']  = $qv("SELECT COUNT(*) FROM trades $where",$p);
-    $stats['wins']          = $qv("SELECT COUNT(*) FROM trades $where AND result='Win'",$p);
-    $stats['losses']        = $qv("SELECT COUNT(*) FROM trades $where AND result='Loss'",$p);
-    $stats['break_evens']   = $qv("SELECT COUNT(*) FROM trades $where AND result='Break Even'",$p);
-    $stats['win_rate']      = $stats['total_trades']>0 ? round($stats['wins']/$stats['total_trades']*100,1) : 0;
-    $stats['net_pnl']       = $qv("SELECT COALESCE(SUM(net_pnl),0) FROM trades $where",$p);
-    $stats['gross_pnl']     = $qv("SELECT COALESCE(SUM(pnl),0) FROM trades $where",$p);
-    $stats['total_fees']    = $qv("SELECT COALESCE(SUM(fees),0) FROM trades $where",$p);
-    $stats['avg_win']       = $qv("SELECT COALESCE(AVG(net_pnl),0) FROM trades $where AND result='Win'",$p);
-    $stats['avg_loss']      = $qv("SELECT COALESCE(AVG(net_pnl),0) FROM trades $where AND result='Loss'",$p);
-    $stats['avg_r']         = $qv("SELECT COALESCE(AVG(r_multiple),0) FROM trades $where AND r_multiple IS NOT NULL",$p);
-    $wins_sum  = $qv("SELECT COALESCE(SUM(net_pnl),0) FROM trades $where AND result='Win'",$p);
-    $loss_sum  = abs($qv("SELECT COALESCE(SUM(net_pnl),0) FROM trades $where AND result='Loss'",$p));
-    $stats['profit_factor'] = $loss_sum>0 ? round($wins_sum/$loss_sum,2) : 0;
-    $stats['by_session']    = $qa("SELECT session,COUNT(*) as trades,SUM(CASE WHEN result='Win' THEN 1 ELSE 0 END) as wins,COALESCE(SUM(net_pnl),0) as pnl FROM trades $where AND session IS NOT NULL GROUP BY session",$p);
-    $stats['by_fib']        = $qa("SELECT fib_level,COUNT(*) as trades,SUM(CASE WHEN result='Win' THEN 1 ELSE 0 END) as wins,COALESCE(SUM(net_pnl),0) as pnl FROM trades $where AND fib_level IS NOT NULL GROUP BY fib_level ORDER BY fib_level",$p);
-    $stats['by_pair']       = $qa("SELECT pair,COUNT(*) as trades,SUM(CASE WHEN result='Win' THEN 1 ELSE 0 END) as wins,COALESCE(SUM(net_pnl),0) as pnl FROM trades $where AND pair IS NOT NULL GROUP BY pair",$p);
-    $stats['by_direction']  = $qa("SELECT direction,COUNT(*) as trades,SUM(CASE WHEN result='Win' THEN 1 ELSE 0 END) as wins,COALESCE(SUM(net_pnl),0) as pnl FROM trades $where AND direction IS NOT NULL GROUP BY direction",$p);
-
-    // Cumulative P&L + drawdown
-    $cum_trades = $qa("SELECT id,trade_date,net_pnl FROM trades $where ORDER BY trade_date,id",$p);
-    $u = currentUser();
-    $running = 0; $peak = 0; $cum = [];
-    foreach ($cum_trades as $i=>$t) {
-        $running += $t['net_pnl']; if ($running>$peak) $peak=$running;
-        $dd = $peak>0 ? (($peak-$running)/$u['starting_balance'])*100 : 0;
-        $cum[] = ['trade'=>$i+1,'net_pnl'=>round($t['net_pnl'],2),'cumulative'=>round($running,2),'drawdown'=>round($dd,2),'date'=>$t['trade_date']];
-    }
-    $stats['cumulative'] = $cum;
-
-    // Max drawdown
-    $stats['max_drawdown_pct'] = count($cum)>0 ? max(array_column($cum,'drawdown')) : 0;
-    $stats['current_drawdown_pct'] = count($cum)>0 ? end($cum)['drawdown'] : 0;
-
-    // Streak
-    $all_results = $qa("SELECT result FROM trades WHERE user_id=? AND result IN ('Win','Loss') ORDER BY trade_date,id",[$uid]);
-    $cur_streak=0; $cur_type=''; $max_win=0; $max_loss=0; $tmp=0; $tmp_type='';
-    foreach ($all_results as $t) {
-        if ($t['result']===$tmp_type) { $tmp++; }
-        else { $tmp=1; $tmp_type=$t['result']; }
-        if ($tmp_type==='Win' && $tmp>$max_win) $max_win=$tmp;
-        if ($tmp_type==='Loss' && $tmp>$max_loss) $max_loss=$tmp;
-    }
-    $last = end($all_results);
-    if ($last) { $cur_type=$last['result']; $cur_streak=$tmp; }
-    $stats['streak'] = ['current'=>$cur_streak,'type'=>$cur_type,'max_win'=>$max_win,'max_loss'=>$max_loss];
-
-    // Hours heatmap (by hour of day)
-    $hours = $qa("SELECT HOUR(time_in) as hour, COUNT(*) as trades, SUM(CASE WHEN result='Win' THEN 1 ELSE 0 END) as wins, COALESCE(SUM(net_pnl),0) as pnl FROM trades WHERE user_id=? AND time_in IS NOT NULL GROUP BY HOUR(time_in) ORDER BY hour",[$uid]);
-    $stats['by_hour'] = $hours;
-
-    // Calendar heatmap
-    $cal = $qa("SELECT trade_date, COALESCE(SUM(net_pnl),0) as pnl, COUNT(*) as trades FROM trades WHERE user_id=? GROUP BY trade_date ORDER BY trade_date",[$uid]);
-    $stats['calendar'] = $cal;
-
-    // Daily loss check
-    $today_pnl = $qv("SELECT COALESCE(SUM(net_pnl),0) FROM trades WHERE user_id=? AND trade_date=CURDATE()",[$uid]);
-    $u = currentUser();
-    $stats['today_pnl'] = $today_pnl;
-    $stats['daily_limit_pct'] = $u ? abs(min(0,$today_pnl))/$u['daily_loss_limit']*100 : 0;
-    $stats['dd_pct'] = $u && $u['starting_balance']>0 ? abs(min(0,floatval($u['account_balance'])-floatval($u['starting_balance'])))/floatval($u['starting_balance'])*100 : 0;
-
-    echo json_encode($stats); break;
-
-// ── RISK CALCULATOR ──────────────────────────────────────
-case 'calculate_risk':
-    $d = json_decode(file_get_contents('php://input'),true);
-    $u = currentUser();
-    $balance = floatval($d['balance'] ?? $u['account_balance']);
-    $risk_pct = floatval($d['risk_pct'] ?? $u['risk_per_trade_pct']);
-    $entry = floatval($d['entry']??0);
-    $sl = floatval($d['sl']??0);
-    if ($entry<=0||$sl<=0||$entry==$sl) { echo json_encode(['error'=>'Invalid prices']); break; }
-    $risk_amt = $balance * $risk_pct/100;
-    $sl_dist = abs($entry-$sl);
-    $lot_size = $risk_amt / $sl_dist;
-    $tp = floatval($d['tp']??0);
-    $rr = $tp>0 && $sl_dist>0 ? abs($tp-$entry)/$sl_dist : 0;
-    $potential_profit = $tp>0 ? $lot_size*abs($tp-$entry) : 0;
-    echo json_encode(['risk_amount'=>round($risk_amt,2),'lot_size'=>round($lot_size,4),'sl_distance'=>round($sl_dist,2),'rr_ratio'=>round($rr,2),'potential_profit'=>round($potential_profit,2),'risk_pct'=>$risk_pct]); break;
+// ── NAV ──────────────────────────────────────────────────
+function showPage(id) {
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav a').forEach(a=>a.classList.remove('active'));
+    const pg = document.getElementById('page-'+id);
+    if(pg) pg.classList.add('active');
+    const lnk = document.querySelector(`[data-page="${id}"]`);
+    if(lnk) lnk.classList.add('active');
+    const titles={dashboard:'Dashboard',trades:'Trade Log',stats:'Statistics',review:'Weekly Review',strategy:'Strategy Tester',calculator:'Risk Calculator',settings:'Settings'};
+    document.querySelector('.topbar h2').textContent = titles[id]||id;
+    // close sidebar on mobile
+    document.querySelector('.sidebar').classList.remove('open');
+    if(id==='dashboard') loadDashboard();
+    if(id==='trades') { loadPairs(); loadTrades(); }
+    if(id==='stats') loadStats();
+    if(id==='review') loadReviews();
+    if(id==='strategy') loadStrategyTrades();
+    if(id==='calculator') loadCalculator();
+    if(id==='settings') loadSettings();
+}
 
 // ── ALERTS ───────────────────────────────────────────────
-case 'get_alerts':
-    $u = currentUser();
-    $alerts = [];
-    $today_pnl = $db->prepare("SELECT COALESCE(SUM(net_pnl),0) FROM trades WHERE user_id=? AND trade_date=CURDATE()");
-    $today_pnl->execute([$uid]); $today = floatval($today_pnl->fetchColumn());
-    $today_trades = $db->prepare("SELECT COUNT(*) FROM trades WHERE user_id=? AND trade_date=CURDATE()");
-    $today_trades->execute([$uid]); $tc = intval($today_trades->fetchColumn());
-    $dd_pct = abs(min(0,floatval($u['account_balance'])-floatval($u['starting_balance'])))/floatval($u['starting_balance'])*100;
-    $daily_pct = $u['daily_loss_limit']>0 ? abs(min(0,$today))/$u['daily_loss_limit']*100 : 0;
-    if ($daily_pct>=100) $alerts[]=[ 'type'=>'danger','icon'=>'🛑','msg'=>'DAILY LOSS LIMIT REACHED — STOP TRADING TODAY'];
-    elseif ($daily_pct>=80) $alerts[]=[ 'type'=>'warning','icon'=>'⚠️','msg'=>'At '.round($daily_pct).'% of daily loss limit — be careful'];
-    if ($dd_pct>=$u['max_drawdown_pct']) $alerts[]=[ 'type'=>'danger','icon'=>'💀','msg'=>'MAX DRAWDOWN REACHED — Account at risk'];
-    elseif ($dd_pct>=$u['max_drawdown_pct']*0.8) $alerts[]=[ 'type'=>'warning','icon'=>'⚠️','msg'=>'Drawdown at '.round($dd_pct,1).'% — approaching limit of '.$u['max_drawdown_pct'].'%'];
-    if ($tc>=2) $alerts[]=[ 'type'=>'info','icon'=>'ℹ️','msg'=>'You have taken '.$tc.' trades today — max recommended is 2'];
-    // Consecutive losses
-    $last3 = $db->prepare("SELECT result FROM trades WHERE user_id=? AND result IN ('Win','Loss') ORDER BY trade_date DESC, id DESC LIMIT 3");
-    $last3->execute([$uid]); $r3=$last3->fetchAll();
-    if (count($r3)>=3 && array_sum(array_map(fn($r)=>$r['result']==='Loss'?1:0,$r3))>=3)
-        $alerts[]=['type'=>'danger','icon'=>'🚨','msg'=>'3 consecutive losses — consider stopping for the day'];
-    echo json_encode($alerts); break;
-
-// ── IMPORT FROM EXCEL DATA ───────────────────────────────
-case 'import_trades':
-    $d = json_decode(file_get_contents('php://input'),true);
-    $trades = $d['trades']??[];
-    $count = 0;
-    foreach ($trades as $t) {
-        if (empty($t['trade_date'])||empty($t['pair'])||empty($t['direction'])) continue;
-        $pnl = floatval($t['pnl']??0);
-        $fees = floatval($t['fees']??0);
-        $net = $pnl-$fees;
-        $stmt = $db->prepare("INSERT INTO trades (user_id,trade_date,session,pair,direction,entry_price,stop_loss,take_profit,exit_price,lot_size,pnl,fees,net_pnl,r_multiple,result,confidence,exec_score,fib_level,fsa_rules,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-        $stmt->execute([$uid,$t['trade_date'],$t['session']??'London',$t['pair'],$t['direction'],$t['entry_price']??null,$t['stop_loss']??null,$t['take_profit']??null,$t['exit_price']??null,$t['lot_size']??null,$pnl,$fees,$net,$t['r_multiple']??0,$t['result']??null,$t['confidence']??null,$t['exec_score']??null,$t['fib_level']??null,$t['fsa_rules']??null,$t['notes']??null]);
-        $count++;
-    }
-    echo json_encode(['success'=>true,'imported'=>$count]); break;
-
-// ── STRATEGY TESTS ───────────────────────────────────────
-case 'get_strategy_trades':
-    $s=$db->prepare("SELECT * FROM strategy_tests WHERE user_id=? ORDER BY created_at DESC"); $s->execute([$uid]); echo json_encode($s->fetchAll()); break;
-
-case 'add_strategy_trade':
-    $d=json_decode(file_get_contents('php://input'),true);
-    $s=$db->prepare("INSERT INTO strategy_tests (user_id,strategy_name,timeframe,market,rule1,rule2,rule3,rule4,rule5,test_date,pair,direction,r1,r2,r3,r4,r5,result,fib_level,r_multiple,net_pnl,session,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-    $s->execute([$uid,$d['strategy_name']??'',$d['timeframe']??'',$d['market']??'',$d['rule1']??'',$d['rule2']??'',$d['rule3']??'',$d['rule4']??'',$d['rule5']??'',date('Y-m-d'),$d['pair']??'',$d['direction']??'Long',$d['r1']??'N',$d['r2']??'N',$d['r3']??'N',$d['r4']??'N',$d['r5']??'N',$d['result']??null,$d['fib_level']??null,$d['r_multiple']??0,$d['net_pnl']??0,$d['session']??null,$d['notes']??null]);
-    echo json_encode(['success'=>true]); break;
-
-case 'delete_strategy_trade':
-    $d=json_decode(file_get_contents('php://input'),true);
-    $db->prepare("DELETE FROM strategy_tests WHERE id=? AND user_id=?")->execute([$d['id'],$uid]);
-    echo json_encode(['success'=>true]); break;
-
-// ── WEEKLY REVIEWS ───────────────────────────────────────
-case 'get_reviews':
-    $s=$db->prepare("SELECT * FROM weekly_reviews WHERE user_id=? ORDER BY week_start DESC"); $s->execute([$uid]); echo json_encode($s->fetchAll()); break;
-
-case 'save_review':
-    $d=json_decode(file_get_contents('php://input'),true);
-    if (!empty($d['id'])) {
-        $db->prepare("UPDATE weekly_reviews SET week_start=?,week_end=?,process_score=?,mindset_score=?,key_lesson=?,what_went_well=?,what_to_improve=?,rules_followed=? WHERE id=? AND user_id=?")
-           ->execute([$d['week_start'],$d['week_end'],$d['process_score'],$d['mindset_score'],$d['key_lesson'],$d['what_went_well'],$d['what_to_improve'],$d['rules_followed'],$d['id'],$uid]);
-    } else {
-        $db->prepare("INSERT INTO weekly_reviews (user_id,week_start,week_end,process_score,mindset_score,key_lesson,what_went_well,what_to_improve,rules_followed) VALUES (?,?,?,?,?,?,?,?,?)")
-           ->execute([$uid,$d['week_start'],$d['week_end'],$d['process_score'],$d['mindset_score'],$d['key_lesson'],$d['what_went_well'],$d['what_to_improve'],$d['rules_followed']]);
-    }
-    echo json_encode(['success'=>true]); break;
-
-default:
-    echo json_encode(['error'=>'Unknown action: '.$action]);
+async function loadAlerts() {
+    const alerts = await api('get_alerts');
+    const bar = document.getElementById('alert-bar');
+    if(!alerts.length){bar.innerHTML='';return;}
+    bar.innerHTML = alerts.map(a=>`<div class="alert alert-${a.type}"><span>${a.icon}</span>${a.msg}</div>`).join('');
 }
-?>
+
+// ── DASHBOARD ────────────────────────────────────────────
+async function loadDashboard() {
+    await loadAlerts();
+    const s = await api('get_stats');
+    const u = currentUser;
+
+    // KPIs
+    const set = (id,val,cls='')=>{const el=document.getElementById(id);if(el){el.textContent=val;if(cls)el.className='kpi-val '+cls;}};
+    set('kpi-trades',s.total_trades,'blue');
+    set('kpi-winrate',fmtPct(s.win_rate),s.win_rate>=50?'green':'red');
+    set('kpi-pnl',fmt(s.net_pnl),parseFloat(s.net_pnl)>=0?'green':'red');
+    set('kpi-fees',fmt(s.total_fees),'red');
+    set('kpi-r',fmtR(s.avg_r),parseFloat(s.avg_r)>=0?'green':'red');
+    set('kpi-pf',parseFloat(s.profit_factor).toFixed(2),'orange');
+
+    // Balance
+    const bal = parseFloat(u.account_balance||9446)+parseFloat(s.net_pnl||0);
+    document.getElementById('sidebar-balance').textContent = '$'+bal.toFixed(2);
+
+    // Drawdown bar
+    const ddPct = Math.min(100, parseFloat(s.dd_pct||0));
+    const ddFill = document.getElementById('dd-fill');
+    if(ddFill){
+        ddFill.style.width = ddPct+'%';
+        ddFill.style.background = ddPct>80?'var(--red)':ddPct>50?'var(--orange)':'var(--green)';
+    }
+    const ddLabel = document.getElementById('dd-label');
+    if(ddLabel) ddLabel.textContent = `DD: ${ddPct.toFixed(1)}% / ${u.max_drawdown_pct||10}%`;
+
+    // Streak
+    const str = s.streak||{};
+    const strEl = document.getElementById('kpi-streak');
+    if(strEl) strEl.textContent = str.current ? `${str.current} ${str.type}${str.current>1?'s':''}` : '—';
+
+    destroyCharts('donut','line','barPnl','barFib','barSession','drawdown');
+
+    const co = chartOpts();
+    const noLegend = {...co, plugins:{legend:{display:false}}};
+
+    // Donut
+    charts.donut = new Chart(document.getElementById('chart-donut'),{
+        type:'doughnut',
+        data:{labels:['Wins','Losses','Break Even'],datasets:[{data:[s.wins,s.losses,s.break_evens],backgroundColor:['#00d4a0','#ff4d6d','#ffb347'],borderWidth:0,hoverOffset:6}]},
+        options:{...co,cutout:'65%',plugins:{legend:{position:'bottom',labels:{color:'#8892b0',padding:10,font:{size:11}}}}}
+    });
+
+    // Cumulative P&L
+    const cum=s.cumulative||[];
+    charts.line = new Chart(document.getElementById('chart-cumulative'),{
+        type:'line',
+        data:{labels:cum.map(t=>'T'+t.trade),datasets:[{label:'Cumulative P&L',data:cum.map(t=>t.cumulative),borderColor:'#4f7cff',backgroundColor:'rgba(79,124,255,0.08)',fill:true,tension:0.4,pointRadius:3,pointBackgroundColor:'#4f7cff'}]},
+        options:{...noLegend,scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',callback:v=>'$'+v,font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}}
+    });
+
+    // Drawdown curve
+    charts.drawdown = new Chart(document.getElementById('chart-drawdown'),{
+        type:'line',
+        data:{labels:cum.map(t=>'T'+t.trade),datasets:[{label:'Drawdown %',data:cum.map(t=>-t.drawdown),borderColor:'#ff4d6d',backgroundColor:'rgba(255,77,109,0.07)',fill:true,tension:0.4,pointRadius:2}]},
+        options:{...noLegend,scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',callback:v=>v+'%',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}}
+    });
+
+    // P&L per trade
+    charts.barPnl = new Chart(document.getElementById('chart-pnl'),{
+        type:'bar',
+        data:{labels:cum.map(t=>'T'+t.trade),datasets:[{data:cum.map(t=>t.net_pnl),backgroundColor:cum.map(t=>t.net_pnl>=0?'rgba(0,212,160,0.7)':'rgba(255,77,109,0.7)'),borderRadius:3}]},
+        options:{...noLegend,scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',callback:v=>'$'+v,font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}}
+    });
+
+    // Session P&L
+    const sess=s.by_session||[];
+    charts.barSession = new Chart(document.getElementById('chart-session'),{
+        type:'bar',
+        data:{labels:sess.map(s=>s.session),datasets:[{label:'Net P&L',data:sess.map(s=>s.pnl),backgroundColor:['#4f7cff','#00d4a0','#9b6dff'],borderRadius:4}]},
+        options:{...co,scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',callback:v=>'$'+v,font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}}
+    });
+
+    // Fib win rate
+    const fib=s.by_fib||[];
+    charts.barFib = new Chart(document.getElementById('chart-fib'),{
+        type:'bar',
+        data:{labels:fib.map(f=>f.fib_level),datasets:[{label:'Win Rate %',data:fib.map(f=>f.trades>0?Math.round(f.wins/f.trades*100):0),backgroundColor:'rgba(155,109,255,0.7)',borderRadius:4}]},
+        options:{...co,scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',callback:v=>v+'%',font:{size:10}},max:100,grid:{color:'rgba(255,255,255,0.03)'}}}}
+    });
+
+    // Calendar heatmap
+    renderCalendar(s.calendar||[]);
+    // Hours heatmap
+    renderHoursHeatmap(s.by_hour||[]);
+}
+
+// ── CALENDAR HEATMAP ─────────────────────────────────────
+function renderCalendar(data) {
+    const wrap = document.getElementById('calendar-wrap');
+    if(!wrap) return;
+    const map = {};
+    data.forEach(d=>{ map[d.trade_date]={pnl:parseFloat(d.pnl),trades:d.trades}; });
+    const maxAbs = Math.max(...data.map(d=>Math.abs(parseFloat(d.pnl))),1);
+
+    // last 3 months
+    const months = [];
+    const now = new Date();
+    for(let i=2;i>=0;i--){
+        const d = new Date(now.getFullYear(),now.getMonth()-i,1);
+        months.push({year:d.getFullYear(),month:d.getMonth()});
+    }
+    wrap.innerHTML = months.map(({year,month})=>{
+        const mName = new Date(year,month,1).toLocaleString('default',{month:'short',year:'numeric'});
+        const days = new Date(year,month+1,0).getDate();
+        const firstDay = new Date(year,month,1).getDay();
+        let cells = '<div style="display:grid;grid-template-columns:repeat(7,22px);gap:3px">';
+        for(let i=0;i<firstDay;i++) cells+='<div></div>';
+        for(let d=1;d<=days;d++){
+            const key = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+            const info = map[key];
+            let bg = '#1a2035';
+            if(info){
+                const intensity = Math.min(1,Math.abs(info.pnl)/maxAbs);
+                const r = info.pnl>=0?0:255, g=info.pnl>=0?212:77;
+                bg = `rgba(${r},${g},${info.pnl>=0?160:109},${0.2+intensity*0.7})`;
+            }
+            const tip = info?`${key}: ${fmt(info.pnl)} (${info.trades} trade${info.trades>1?'s':''})`:`${key}: No trades`;
+            cells+=`<div class="cal-day" style="background:${bg}" title="${tip}"><span class="cal-tooltip">${tip}</span></div>`;
+        }
+        cells+='</div>';
+        return `<div style="margin-right:16px"><div class="cal-month-label">${mName}</div>${cells}</div>`;
+    }).join('');
+}
+
+// ── HOURS HEATMAP ─────────────────────────────────────────
+function renderHoursHeatmap(data) {
+    const wrap = document.getElementById('hours-heatmap');
+    if(!wrap) return;
+    const byHour = {};
+    for(let h=0;h<24;h++) byHour[h]={trades:0,wins:0,pnl:0};
+    data.forEach(d=>{ byHour[d.hour]={trades:parseInt(d.trades),wins:parseInt(d.wins),pnl:parseFloat(d.pnl)}; });
+    const maxPnl = Math.max(...Object.values(byHour).map(h=>Math.abs(h.pnl)),1);
+    wrap.innerHTML = Array.from({length:24},(_,h)=>{
+        const info=byHour[h];
+        const height = info.trades>0?Math.max(12,Math.abs(info.pnl)/maxPnl*80):4;
+        const color = info.pnl>0?'rgba(0,212,160,0.7)':info.pnl<0?'rgba(255,77,109,0.7)':'rgba(74,85,128,0.3)';
+        const label = h===0?'12a':h<12?h+'a':h===12?'12p':(h-12)+'p';
+        return `<div class="heatmap-col">
+            <div class="heatmap-bar" style="height:${height}px;background:${color}" title="${h}:00 — ${info.trades} trades, P&L: ${fmt(info.pnl)}"></div>
+            <div class="heatmap-label">${label}</div>
+        </div>`;
+    }).join('');
+}
+
+// ── TRADE LOG ────────────────────────────────────────────
+async function loadTrades() {
+    const pair = document.getElementById('filter-pair')?.value||'';
+    const result = document.getElementById('filter-result')?.value||'';
+    const from = document.getElementById('filter-from')?.value||'';
+    const to = document.getElementById('filter-to')?.value||'';
+    let url = 'get_trades';
+    const params=[];
+    if(pair) params.push('pair='+pair);
+    if(result) params.push('result='+result);
+    if(from) params.push('from='+from);
+    if(to) params.push('to='+to);
+    if(params.length) url+='&'+params.join('&');
+    allTrades = await api(url);
+    renderTradesTable(allTrades);
+}
+
+async function loadPairs() {
+    allPairs = await api('get_pairs');
+    const selects = document.querySelectorAll('.pair-select');
+    selects.forEach(sel => {
+        const cur = sel.value;
+        // For filter dropdowns keep All Pairs option
+        if(sel.id === 'filter-pair') {
+            sel.innerHTML = '<option value="">All Pairs</option>' + 
+                allPairs.map(p=>`<option value="${p.symbol}">${p.symbol}</option>`).join('');
+        } else {
+            sel.innerHTML = allPairs.map(p=>`<option value="${p.symbol}">${p.symbol}</option>`).join('');
+        }
+        if(cur) sel.value = cur;
+    });
+}
+
+function renderTradesTable(trades) {
+    const tbody=document.getElementById('trades-tbody');
+    if(!trades.length){tbody.innerHTML='<tr><td colspan="16" class="empty"><div class="empty-icon">📋</div><p>No trades yet.</p></td></tr>';return;}
+    tbody.innerHTML = trades.map((t,i)=>`<tr>
+        <td style="white-space:nowrap">${t.trade_date}</td>
+        <td><span class="badge" style="background:rgba(79,124,255,0.1);color:var(--blue2);font-size:10px">${t.session||'—'}</span></td>
+        <td style="font-weight:600;color:var(--text)">${t.pair}</td>
+        <td>${t.direction==='Long'?'<span class="badge badge-long">Long</span>':'<span class="badge badge-short">Short</span>'}</td>
+        <td style="font-family:var(--font-head);font-size:11px">${t.entry_price?parseFloat(t.entry_price).toFixed(2):'—'}</td>
+        <td style="font-family:var(--font-head);font-size:11px;color:var(--red2)">${t.stop_loss?parseFloat(t.stop_loss).toFixed(2):'—'}</td>
+        <td style="font-family:var(--font-head);font-size:11px">${t.exit_price?parseFloat(t.exit_price).toFixed(2):'—'}</td>
+        <td><span class="${pnlCls(t.pnl)}">${fmt(t.pnl)}</span></td>
+        <td style="color:var(--orange);font-size:12px;font-family:var(--font-head)">${fmt(t.fees)}</td>
+        <td><span class="${pnlCls(t.net_pnl)}">${fmt(t.net_pnl)}</span></td>
+        <td style="font-family:var(--font-head);font-size:11px;color:${parseFloat(t.r_multiple)>=0?'var(--green)':'var(--red)'}">${t.r_multiple!==null?t.r_multiple+'R':'—'}</td>
+        <td>${resultBadge(t.result)}</td>
+        <td style="color:var(--purple);font-size:12px">${t.fib_level||'—'}</td>
+        <td>${t.confidence?`<span class="badge badge-${(t.confidence||'').toLowerCase()}">${t.confidence}</span>`:'—'}</td>
+        <td style="white-space:nowrap">
+            <button class="btn btn-ghost btn-sm" onclick="viewTrade(${t.id})" title="View trade">👁</button>
+            <button class="btn btn-ghost btn-sm" onclick="editTrade(${t.id})">✏️</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTrade(${t.id})">🗑</button>
+        </td>
+    </tr>`).join('');
+}
+
+function viewTrade(id) {
+    const t = allTrades.find(t=>t.id==id);
+    if(!t) return;
+    const u = currentUser;
+    const uid = u?.id || t.user_id || 1;
+    const imgHtml = t.screenshot
+        ? `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:400px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')" title="Click to open full size">`
+        : `<div style="height:160px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3);font-size:13px">📷 No chart screenshot uploaded</div>`;
+
+    document.getElementById('view-trade-content').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+            <div>
+                ${imgHtml}
+                ${t.notes?`<div style="margin-top:12px;padding:12px;background:var(--bg3);border-radius:8px;font-size:13px;color:var(--text2);line-height:1.6"><strong style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:1px">Notes</strong><br>${t.notes}</div>`:''}
+            </div>
+            <div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Date</div>
+                        <div style="font-family:var(--font-head);font-size:13px">${t.trade_date}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Pair</div>
+                        <div style="font-family:var(--font-head);font-size:13px;color:var(--blue2)">${t.pair}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Direction</div>
+                        <div>${t.direction==='Long'?'<span class="badge badge-long">Long</span>':'<span class="badge badge-short">Short</span>'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Result</div>
+                        <div>${resultBadge(t.result)}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Entry</div>
+                        <div style="font-family:var(--font-head);font-size:13px">${t.entry_price?parseFloat(t.entry_price).toFixed(2):'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Stop Loss</div>
+                        <div style="font-family:var(--font-head);font-size:13px;color:var(--red)">${t.stop_loss?parseFloat(t.stop_loss).toFixed(2):'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Take Profit</div>
+                        <div style="font-family:var(--font-head);font-size:13px;color:var(--green)">${t.take_profit?parseFloat(t.take_profit).toFixed(2):'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Exit Price</div>
+                        <div style="font-family:var(--font-head);font-size:13px">${t.exit_price?parseFloat(t.exit_price).toFixed(2):'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Net P&L</div>
+                        <div class="${pnlCls(t.net_pnl)}" style="font-size:18px">${fmt(t.net_pnl)}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">R Multiple</div>
+                        <div style="font-family:var(--font-head);font-size:16px;color:${parseFloat(t.r_multiple||0)>=0?'var(--green)':'var(--red)'}">${t.r_multiple}R</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Fib Level</div>
+                        <div style="color:var(--purple);font-weight:600">${t.fib_level||'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">FSA Rules</div>
+                        <div style="color:${t.fsa_rules==='All 5'?'var(--green)':'var(--orange)'};font-weight:600">${t.fsa_rules||'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Session</div>
+                        <div>${t.session||'—'}</div>
+                    </div>
+                    <div style="background:var(--bg3);padding:12px;border-radius:8px">
+                        <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Exec Score</div>
+                        <div style="font-family:var(--font-head);font-size:16px;color:var(--gold)">${t.exec_score?t.exec_score+'/10':'—'}</div>
+                    </div>
+                </div>
+                <div style="margin-top:12px;display:flex;gap:8px">
+                    <button class="btn btn-ghost" style="flex:1" onclick="document.getElementById('view-trade-modal').classList.remove('open')">Close</button>
+                    <button class="btn btn-primary" style="flex:1" onclick="document.getElementById('view-trade-modal').classList.remove('open');editTrade(${t.id})">✏️ Edit Trade</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.getElementById('view-trade-title').textContent = `Trade #${t.id} — ${t.pair} ${t.direction} — ${t.trade_date}`;
+    document.getElementById('view-trade-modal').classList.add('open');
+}
+
+function viewScreenshot(url){
+    window.open(url,'_blank');
+}
+
+function openTradeModal(data=null) {
+    loadPairs();
+    document.getElementById('trade-form').reset();
+    document.getElementById('trade-id').value=data?.id||'';
+    document.getElementById('screenshot-current').innerHTML='';
+    if(data){
+        const fields=['trade_date','session','pair','direction','entry_price','stop_loss','take_profit','exit_price','lot_size','fees','result','confidence','exec_score','fib_level','fsa_rules','notes'];
+        fields.forEach(k=>{ const el=document.getElementById('f-'+k); if(el&&data[k]!==null&&data[k]!==undefined) el.value=data[k]; });
+        // Handle datetime fields
+        if(data.time_in) { const d=data.time_in.replace(' ','T'); const parts=d.split('T'); document.getElementById('f-time_in_date').value=parts[0]; document.getElementById('f-time_in_time').value=parts[1]?.substring(0,5)||''; }
+        if(data.time_out) { const d=data.time_out.replace(' ','T'); const parts=d.split('T'); document.getElementById('f-time_out_date').value=parts[0]; document.getElementById('f-time_out_time').value=parts[1]?.substring(0,5)||''; }
+        if(data.screenshot) document.getElementById('screenshot-current').innerHTML=`<img src="uploads/screenshots/${data.screenshot}" style="max-width:100%;max-height:100px;border-radius:6px;margin-top:6px">`;
+    } else {
+        const today=new Date().toISOString().split('T')[0];
+        document.getElementById('f-trade_date').value=today;
+        document.getElementById('f-time_in_date').value=today;
+        document.getElementById('f-time_out_date').value=today;
+    }
+    document.getElementById('trade-modal').classList.add('open');
+}
+
+async function editTrade(id){ const t=allTrades.find(t=>t.id==id); if(t) openTradeModal(t); }
+
+async function deleteTrade(id){
+    if(!confirm('Delete this trade?')) return;
+    try {
+        const r = await api('delete_trade','POST',{id});
+        if(r.error){ toast(r.error,'error'); return; }
+        toast('Trade deleted ✅'); 
+        loadTrades(); 
+        loadDashboard();
+    } catch(e) {
+        toast('Delete failed: '+e.message,'error');
+    }
+}
+
+async function saveTrade() {
+    const id = document.getElementById('trade-id').value;
+    const fd = new FormData();
+
+    // Add all trade fields
+    const fields = ['trade_date','session','pair','direction','entry_price','stop_loss',
+                    'take_profit','exit_price','lot_size','fees','result','confidence',
+                    'exec_score','fib_level','fsa_rules','notes'];
+    fields.forEach(k => {
+        const el = document.getElementById('f-'+k);
+        if(el) fd.append(k, el.value||'');
+    });
+
+    // DateTime fields
+    const tin_d  = document.getElementById('f-time_in_date').value;
+    const tin_t  = document.getElementById('f-time_in_time').value;
+    const tout_d = document.getElementById('f-time_out_date').value;
+    const tout_t = document.getElementById('f-time_out_time').value;
+    fd.append('time_in',  tin_d  && tin_t  ? tin_d  + ' ' + tin_t  + ':00' : '');
+    fd.append('time_out', tout_d && tout_t ? tout_d + ' ' + tout_t + ':00' : '');
+    if(id) fd.append('id', id);
+
+    // Screenshot file
+    const fileInput = document.getElementById('f-screenshot');
+    if(fileInput.files.length > 0) {
+        fd.append('screenshot', fileInput.files[0]);
+    }
+
+    try {
+        const resp = await fetch(`${API}?action=${id?'update_trade':'add_trade'}`, {
+            method: 'POST',
+            body: fd
+        });
+        const r = await resp.json();
+        if(r.error) { toast(r.error, 'error'); return; }
+        toast(id ? 'Trade updated! ✅' : 'Trade added! ✅');
+        document.getElementById('trade-modal').classList.remove('open');
+        loadTrades();
+        loadDashboard();
+    } catch(e) {
+        toast('Error saving trade: ' + e.message, 'error');
+    }
+}
+
+// ── RISK CALCULATOR ──────────────────────────────────────
+function loadCalculator(){
+    const u=currentUser;
+    const balEl=document.getElementById('calc-balance');
+    if(balEl) balEl.value=u.account_balance||10000;
+    const riskEl=document.getElementById('calc-risk-pct');
+    if(riskEl) riskEl.value=u.risk_per_trade_pct||0.25;
+}
+
+function calcSimple(){
+    const balance = parseFloat(document.getElementById('calc-balance').value||0);
+    const slPct   = parseFloat(document.getElementById('calc-sl-pct').value||0);
+    const riskPct = parseFloat(document.getElementById('calc-risk-pct').value||0);
+    const leverage= parseFloat(document.getElementById('calc-leverage').value||1);
+
+    if(!balance||!slPct||!riskPct){
+        document.getElementById('calc-results-inner').innerHTML='<div style="color:var(--red)">Please fill all fields</div>';
+        return;
+    }
+
+    const riskAmt     = balance * riskPct / 100;
+    const positionSize= (riskAmt / (slPct / 100));
+    const lotSize     = positionSize / balance * leverage;
+    const marginUsed  = positionSize / leverage;
+
+    document.getElementById('calc-results-inner').innerHTML = `
+        <div style="margin-bottom:12px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Risk Amount</div>
+            <div style="font-family:var(--font-head);font-size:28px;color:var(--red)">$${riskAmt.toFixed(2)}</div>
+        </div>
+        <div style="height:1px;background:var(--border);margin:12px 0"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;text-align:left">
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Position Size</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--green)">$${positionSize.toFixed(2)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Lot Size</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--blue2)">${lotSize.toFixed(4)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Margin Used</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--orange)">$${marginUsed.toFixed(2)}</div>
+            </div>
+            <div style="background:var(--bg3);border-radius:8px;padding:12px">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Leverage</div>
+                <div style="font-family:var(--font-head);font-size:20px;color:var(--purple)">${leverage}x</div>
+            </div>
+        </div>
+    `;
+}
+
+// ── FSA CHECKLIST ─────────────────────────────────────────
+function openChecklist(){
+    const items=document.querySelectorAll('.check-item');
+    items.forEach(i=>{ i.classList.remove('checked'); i.querySelector('input').checked=false; });
+    updateCheckScore();
+    document.getElementById('checklist-popup').classList.add('open');
+}
+
+function toggleCheck(el){
+    el.classList.toggle('checked');
+    el.querySelector('input').checked=el.classList.contains('checked');
+    updateCheckScore();
+}
+
+function updateCheckScore(){
+    const total=document.querySelectorAll('.check-item').length;
+    const checked=document.querySelectorAll('.check-item.checked').length;
+    const scoreEl=document.getElementById('check-score');
+    scoreEl.textContent=checked+'/'+total;
+    scoreEl.style.color=checked===total?'var(--green)':checked>=3?'var(--orange)':'var(--red)';
+}
+
+function proceedTrade(){
+    const checked=document.querySelectorAll('.check-item.checked').length;
+    const total=document.querySelectorAll('.check-item').length;
+    if(checked<total){if(!confirm(`Only ${checked}/${total} rules met. Take trade anyway?`)) return;}
+    document.getElementById('checklist-popup').classList.remove('open');
+    openTradeModal();
+}
+
+// ── STATS ────────────────────────────────────────────────
+async function loadStats(){
+    const m=document.getElementById('stat-month')?.value||'';
+    const y=document.getElementById('stat-year')?.value||'';
+    const s=await api('get_stats'+(m&&y?`&month=${m}&year=${y}`:''));
+
+    const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+    set('s-total',s.total_trades); set('s-wins',s.wins); set('s-losses',s.losses);
+    set('s-be',s.break_evens); set('s-wr',fmtPct(s.win_rate));
+    set('s-gross',fmt(s.gross_pnl)); set('s-fees',fmt(s.total_fees));
+    set('s-netpnl',fmt(s.net_pnl)); set('s-avgwin',fmt(s.avg_win));
+    set('s-avgloss',fmt(s.avg_loss)); set('s-avgr',fmtR(s.avg_r));
+    set('s-pf',s.profit_factor);
+    set('s-maxdd',s.max_drawdown_pct?.toFixed(2)+'%');
+    set('s-curdd',s.current_drawdown_pct?.toFixed(2)+'%');
+
+    const str=s.streak||{};
+    set('s-streak-cur',(str.current||0)+' '+(str.type||''));
+    set('s-streak-maxwin',str.max_win||0);
+    set('s-streak-maxloss',str.max_loss||0);
+
+    const feePct=s.gross_pnl!=0?Math.abs(s.total_fees/s.gross_pnl*100).toFixed(1):0;
+    set('s-fee-pct',feePct+'%');
+    const warn=document.getElementById('s-fee-warning');
+    if(warn){warn.textContent=feePct>10?'⚠️ Fees eating >10% of gross P&L — review lot size':'✅ Fees acceptable';warn.style.color=feePct>10?'var(--red)':'var(--green)';}
+
+    const tbodyFn=(id,rows)=>{const el=document.getElementById(id);if(el)el.innerHTML=rows||'<tr><td colspan="4" style="color:var(--text3)">No data</td></tr>';};
+    tbodyFn('s-session-tbody',(s.by_session||[]).map(r=>`<tr><td>${r.session}</td><td>${r.trades}</td><td>${r.trades>0?fmtPct(r.wins/r.trades*100):'0%'}</td><td class="${pnlCls(r.pnl)}">${fmt(r.pnl)}</td></tr>`).join(''));
+    tbodyFn('s-fib-tbody',(s.by_fib||[]).map(r=>`<tr><td style="color:var(--purple)">${r.fib_level}</td><td>${r.trades}</td><td>${r.trades>0?fmtPct(r.wins/r.trades*100):'0%'}</td><td class="${pnlCls(r.pnl)}">${fmt(r.pnl)}</td></tr>`).join(''));
+    tbodyFn('s-pair-tbody',(s.by_pair||[]).map(r=>`<tr><td style="font-weight:600">${r.pair}</td><td>${r.trades}</td><td>${r.trades>0?fmtPct(r.wins/r.trades*100):'0%'}</td><td class="${pnlCls(r.pnl)}">${fmt(r.pnl)}</td></tr>`).join(''));
+    tbodyFn('s-dir-tbody',(s.by_direction||[]).map(r=>`<tr><td>${r.direction==='Long'?'<span class="badge badge-long">Long</span>':'<span class="badge badge-short">Short</span>'}</td><td>${r.trades}</td><td>${r.trades>0?fmtPct(r.wins/r.trades*100):'0%'}</td><td class="${pnlCls(r.pnl)}">${fmt(r.pnl)}</td></tr>`).join(''));
+}
+
+// ── WEEKLY REVIEW ────────────────────────────────────────
+async function loadReviews(){
+    allReviews=await api('get_reviews');
+    const c=document.getElementById('reviews-list');
+    if(!allReviews.length){c.innerHTML='<div class="empty"><div class="empty-icon">📝</div><p>No reviews yet.</p></div>';return;}
+    c.innerHTML=allReviews.map(r=>`<div class="review-card">
+        <div class="review-header">
+            <span class="review-week">${r.week_start} → ${r.week_end}</span>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:11px;color:var(--text3)">Process <span style="color:var(--gold)">${r.process_score}/10</span></span>
+                <span style="font-size:11px;color:var(--text3)">Mindset <span style="color:var(--purple)">${r.mindset_score}/10</span></span>
+                <button class="btn btn-ghost btn-sm" onclick="editReview(${r.id})">Edit</button>
+            </div>
+        </div>
+        ${r.key_lesson?`<div style="font-size:12px;color:var(--text2);margin-bottom:8px"><span style="color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:1px">Key Lesson: </span>${r.key_lesson}</div>`:''}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            ${r.what_went_well?`<div style="font-size:12px"><div style="color:var(--green);font-size:10px;text-transform:uppercase;margin-bottom:3px">✅ Went Well</div>${r.what_went_well}</div>`:''}
+            ${r.what_to_improve?`<div style="font-size:12px"><div style="color:var(--orange);font-size:10px;text-transform:uppercase;margin-bottom:3px">📈 Improve</div>${r.what_to_improve}</div>`:''}
+        </div>
+    </div>`).join('');
+}
+
+function openReviewModal(data=null){
+    document.getElementById('review-form').reset();
+    document.getElementById('review-id').value=data?.id||'';
+    if(data){
+        ['week_start','week_end','process_score','mindset_score','key_lesson','what_went_well','what_to_improve','rules_followed'].forEach(k=>{
+            const el=document.getElementById('r-'+k); if(el&&data[k]) el.value=data[k];
+        });
+    } else {
+        const now=new Date();
+        const mon=new Date(now); mon.setDate(now.getDate()-now.getDay()+1);
+        const sun=new Date(mon); sun.setDate(mon.getDate()+6);
+        document.getElementById('r-week_start').value=mon.toISOString().split('T')[0];
+        document.getElementById('r-week_end').value=sun.toISOString().split('T')[0];
+    }
+    document.getElementById('review-modal').classList.add('open');
+}
+
+async function editReview(id){ const r=allReviews.find(r=>r.id==id); if(r) openReviewModal(r); }
+
+async function saveReview(){
+    const id=document.getElementById('review-id').value;
+    const data={id:id||null};
+    ['week_start','week_end','process_score','mindset_score','key_lesson','what_went_well','what_to_improve','rules_followed'].forEach(k=>{ data[k]=document.getElementById('r-'+k)?.value||null; });
+    await api('save_review','POST',data);
+    toast('Review saved!');
+    document.getElementById('review-modal').classList.remove('open');
+    loadReviews();
+}
+
+// ── STRATEGY TESTER ──────────────────────────────────────
+async function loadStrategyTrades(){
+    stratTrades=await api('get_strategy_trades');
+    const stats=await api('get_strategy_stats');
+    document.getElementById('st-total').textContent=stats.total;
+    document.getElementById('st-wr').textContent=fmtPct(stats.win_rate||0);
+    document.getElementById('st-pnl').textContent=fmt(stats.net_pnl||0);
+    const tbody=document.getElementById('strategy-tbody');
+    if(!stratTrades.length){tbody.innerHTML='<tr><td colspan="12"><div class="empty"><div class="empty-icon">🧪</div><p>No tests yet</p></div></td></tr>';return;}
+    tbody.innerHTML=stratTrades.map(t=>{
+        const rules=[t.r1,t.r2,t.r3,t.r4,t.r5].filter(r=>r==='Y').length;
+        return `<tr>
+            <td style="font-size:11px">${t.strategy_name||'—'}</td>
+            <td>${t.pair||'—'}</td>
+            <td>${t.direction==='Long'?'<span class="badge badge-long">Long</span>':'<span class="badge badge-short">Short</span>'}</td>
+            <td>${['r1','r2','r3','r4','r5'].map((r,i)=>`<span style="padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700;background:${t[r]==='Y'?'rgba(0,212,160,0.2)':'rgba(255,77,109,0.2)'};color:${t[r]==='Y'?'var(--green)':'var(--red)'}">R${i+1}</span>`).join(' ')}</td>
+            <td style="font-size:11px;color:${rules===5?'var(--green)':'var(--orange)'}">${rules}/5${rules===5?' ✅':''}</td>
+            <td>${resultBadge(t.result)}</td>
+            <td style="color:var(--purple)">${t.fib_level||'—'}</td>
+            <td style="font-family:var(--font-head);font-size:11px;color:${parseFloat(t.r_multiple||0)>=0?'var(--green)':'var(--red)'}">${t.r_multiple?t.r_multiple+'R':'—'}</td>
+            <td><span class="${pnlCls(t.net_pnl||0)}">${fmt(t.net_pnl||0)}</span></td>
+            <td>${t.session||'—'}</td>
+            <td style="font-size:11px;color:var(--text3);max-width:120px;overflow:hidden;text-overflow:ellipsis">${t.notes||'—'}</td>
+            <td><button class="btn btn-danger btn-sm" onclick="deleteStratTrade(${t.id})">🗑</button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function deleteStratTrade(id){if(!confirm('Delete?'))return;await api('delete_strategy_trade','POST',{id});toast('Deleted');loadStrategyTrades();}
+
+async function saveStratTrade(){
+    const data={};
+    ['strategy_name','timeframe','market','rule1','rule2','rule3','rule4','rule5','pair','direction','r1','r2','r3','r4','r5','result','fib_level','r_multiple','net_pnl','session','notes'].forEach(k=>{ data[k]=document.getElementById('st-'+k)?.value||null; });
+    await api('add_strategy_trade','POST',data);
+    toast('Test saved! ✅');
+    document.getElementById('strategy-modal').classList.remove('open');
+    loadStrategyTrades();
+}
+
+// ── PAIRS MANAGEMENT ─────────────────────────────────────
+async function openPairsModal(){
+    const pairs=await api('get_pairs');
+    document.getElementById('pairs-list').innerHTML=pairs.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><span style="font-weight:600">${p.symbol}</span><button class="btn btn-danger btn-sm" onclick="deletePair(${p.id})">Remove</button></div>`).join('');
+    document.getElementById('pairs-modal').classList.add('open');
+}
+
+async function addPair(){
+    const sym=document.getElementById('new-pair-input').value.trim();
+    if(!sym) return;
+    const r=await api('add_pair','POST',{symbol:sym});
+    if(r.error){toast(r.error,'error');return;}
+    toast(sym+' added!');
+    document.getElementById('new-pair-input').value='';
+    openPairsModal(); loadPairs();
+}
+
+async function deletePair(id){
+    await api('delete_pair','POST',{id});
+    toast('Pair removed'); openPairsModal(); loadPairs();
+}
+
+// ── SETTINGS ─────────────────────────────────────────────
+async function loadSettings(){
+    const u=await api('get_user');
+    currentUser=u;
+    const fields=['display_name','account_balance','starting_balance','max_drawdown_pct','daily_loss_limit','risk_per_trade_pct','prop_firm','challenge_phase','avatar_color'];
+    fields.forEach(k=>{ const el=document.getElementById('set-'+k); if(el&&u[k]!==null) el.value=u[k]; });
+}
+
+async function saveSettings(){
+    const data={};
+    ['display_name','account_balance','starting_balance','max_drawdown_pct','daily_loss_limit','risk_per_trade_pct','prop_firm','challenge_phase','avatar_color'].forEach(k=>{ data[k]=document.getElementById('set-'+k)?.value||null; });
+    const np=document.getElementById('set-new-password')?.value;
+    if(np) data.new_password=np;
+    await api('update_settings','POST',data);
+    currentUser={...currentUser,...data};
+    // update avatar
+    const av=document.getElementById('sidebar-avatar');
+    if(av){av.style.background=data.avatar_color;av.textContent=(data.display_name||'U')[0].toUpperCase();}
+    toast('Settings saved! ✅');
+}
+
+// ── IMPORT FROM EXCEL ─────────────────────────────────────
+async function importExcel(){
+    const file=document.getElementById('import-file').files[0];
+    if(!file){toast('Select a file first','warning');return;}
+
+    const reader=new FileReader();
+    reader.onload=async e=>{
+        try {
+            // Read workbook
+            const wb = XLSX.read(e.target.result, {type:'binary', cellDates:false, raw:true});
+
+            // Find Trade Log sheet
+            const sheetName = wb.SheetNames.find(n=>n.includes('Trade'))||wb.SheetNames[0];
+            const ws = wb.Sheets[sheetName];
+
+            // Read as array of arrays (raw — no header detection)
+            const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+
+            // Find header row (the row that contains 'Date' and 'Pair')
+            let headerRowIdx = -1;
+            let headerMap = {};
+            for(let i=0; i<rows.length; i++){
+                const row = rows[i];
+                const hasDate = row.some(c=>String(c).trim()==='Date');
+                const hasPair = row.some(c=>String(c).trim()==='Pair');
+                if(hasDate && hasPair){
+                    headerRowIdx = i;
+                    row.forEach((cell,idx)=>{ if(cell) headerMap[String(cell).trim()] = idx; });
+                    break;
+                }
+            }
+
+            if(headerRowIdx === -1){
+                toast('Cannot find header row with Date and Pair columns','error');
+                return;
+            }
+
+            // Helper to get cell value by column name
+            const get = (row, name) => {
+                const idx = headerMap[name];
+                return idx !== undefined ? row[idx] : '';
+            };
+
+            // Parse date from various formats
+            const parseDate = (val) => {
+                if(!val && val!==0) return '';
+                const s = String(val).trim();
+                if(!s || s==='') return '';
+                // Excel serial number (e.g. 46467) — numbers between 40000-50000
+                const num = parseFloat(s);
+                if(!isNaN(num) && num > 40000 && num < 60000) {
+                    const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+                    return d.toISOString().split('T')[0];
+                }
+                // dd/mm/yyyy
+                if(/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+                    const [dd,mm,yyyy] = s.split('/');
+                    return `${yyyy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+                }
+                // yyyy-mm-dd
+                if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0,10);
+                // Any other date string
+                const d = new Date(s);
+                if(!isNaN(d)) return d.toISOString().split('T')[0];
+                return '';
+            };
+
+            // Build trades from data rows
+            const trades = [];
+            for(let i = headerRowIdx+1; i < rows.length; i++){
+                const row = rows[i];
+                const pair = String(get(row,'Pair')||'').trim();
+                const dateRaw = get(row,'Date');
+                if(!pair || !dateRaw) continue; // skip empty rows
+
+                const trade_date = parseDate(dateRaw);
+                if(!trade_date) continue;
+
+                trades.push({
+                    trade_date,
+                    session:     String(get(row,'Session')||'London'),
+                    pair,
+                    direction:   String(get(row,'Direction')||'Long'),
+                    entry_price: get(row,'Entry')||'',
+                    stop_loss:   get(row,'Stop Loss')||'',
+                    take_profit: get(row,'Take Profit')||'',
+                    exit_price:  get(row,'Exit Price')||'',
+                    lot_size:    get(row,'Lot Size')||'',
+                    pnl:         get(row,'P&L $')||0,
+                    fees:        get(row,'Fees $')||0,
+                    r_multiple:  get(row,'R Multiple')||0,
+                    result:      String(get(row,'Result')||''),
+                    confidence:  String(get(row,'Confidence')||''),
+                    exec_score:  get(row,'Exec Score')||'',
+                    fib_level:   String(get(row,'Fib Level')||''),
+                    fsa_rules:   String(get(row,'FSA Rules')||''),
+                    notes:       String(get(row,'Notes')||'')
+                });
+            }
+
+            if(!trades.length){
+                toast('No valid trades found — check your file has Date and Pair columns','error');
+                return;
+            }
+
+            const r = await api('import_trades','POST',{trades});
+            toast(`Imported ${r.imported} trades! ✅`);
+            document.getElementById('import-modal').classList.remove('open');
+            loadTrades(); loadDashboard();
+
+        } catch(err){
+            toast('Error: '+err.message,'error');
+            console.error(err);
+        }
+    };
+    reader.readAsBinaryString(file);
+}
+
+// ── PDF EXPORT ───────────────────────────────────────────
+function exportPDF(){
+    window.print();
+}
+
+// ── INIT ─────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',async()=>{
+    currentUser=await api('get_user')||{};
+    const av=document.getElementById('sidebar-avatar');
+    if(av){av.style.background=currentUser.avatar_color||'#4f7cff';av.textContent=(currentUser.display_name||currentUser.username||'U')[0].toUpperCase();}
+    const un=document.getElementById('sidebar-username');
+    if(un) un.textContent=currentUser.display_name||currentUser.username;
+    const prop=document.getElementById('sidebar-prop');
+    if(prop) prop.textContent=currentUser.prop_firm||'BitFunded';
+
+    // Hamburger
+    document.getElementById('hamburger-btn')?.addEventListener('click',()=>{
+        document.querySelector('.sidebar').classList.toggle('open');
+    });
+
+    showPage('dashboard');
+});
