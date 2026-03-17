@@ -242,9 +242,8 @@ async function loadPairs() {
 
 function renderTradesTable(trades) {
     const tbody=document.getElementById('trades-tbody');
-    if(!trades.length){tbody.innerHTML='<tr><td colspan="17" class="empty"><div class="empty-icon">📋</div><p>No trades yet.</p></td></tr>';return;}
-    tbody.innerHTML = trades.map(t=>`<tr>
-        <td style="color:var(--text3);font-size:11px">#${t.id}</td>
+    if(!trades.length){tbody.innerHTML='<tr><td colspan="16" class="empty"><div class="empty-icon">📋</div><p>No trades yet.</p></td></tr>';return;}
+    tbody.innerHTML = trades.map((t,i)=>`<tr>
         <td style="white-space:nowrap">${t.trade_date}</td>
         <td><span class="badge" style="background:rgba(79,124,255,0.1);color:var(--blue2);font-size:10px">${t.session||'—'}</span></td>
         <td style="font-weight:600;color:var(--text)">${t.pair}</td>
@@ -259,11 +258,10 @@ function renderTradesTable(trades) {
         <td>${resultBadge(t.result)}</td>
         <td style="color:var(--purple);font-size:12px">${t.fib_level||'—'}</td>
         <td>${t.confidence?`<span class="badge badge-${(t.confidence||'').toLowerCase()}">${t.confidence}</span>`:'—'}</td>
-        <td>${t.screenshot?`<img src="media/uploads/${t.user_id||1}/${t.screenshot}" class="screenshot-preview" onclick="viewTrade(${t.id})" style="width:40px;height:30px;cursor:pointer" title="Click to view trade">`:'—'}</td>
         <td style="white-space:nowrap">
-            <button class="btn btn-ghost btn-sm" onclick="viewTrade(${t.id})" title="View trade details">👁</button>
+            <button class="btn btn-ghost btn-sm" onclick="viewTrade(${t.id})" title="View trade">👁</button>
             <button class="btn btn-ghost btn-sm" onclick="editTrade(${t.id})">✏️</button>
-            <button class="btn btn-danger btn-sm" onclick="deleteTrade(${t.id})" style="margin-left:3px">🗑</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTrade(${t.id})">🗑</button>
         </td>
     </tr>`).join('');
 }
@@ -272,10 +270,10 @@ function viewTrade(id) {
     const t = allTrades.find(t=>t.id==id);
     if(!t) return;
     const u = currentUser;
-    const uid = u?.id || 1;
+    const uid = u?.id || t.user_id || 1;
     const imgHtml = t.screenshot
         ? `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:400px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')" title="Click to open full size">`
-        : `<div style="height:200px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3)">No chart screenshot</div>`;
+        : `<div style="height:160px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3);font-size:13px">📷 No chart screenshot uploaded</div>`;
 
     document.getElementById('view-trade-content').innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
