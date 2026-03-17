@@ -1,10 +1,10 @@
 {
-  "current_version": "2.2.6",
+  "current_version": "2.2.5",
   "release_date": "2026-03-17",
-  "release_notes": "Fixed delete trade + bulk delete",
+  "release_notes": "Fixed screenshot upload path",
   "changelog": [
-    "Fixed delete trade button with better error handling",
-    "Added bulk delete selected trades"
+    "Fixed screenshot upload — uses direct path",
+    "Removed debug code"
   ],
   "files": [
     {"path": "index.php", "critical": false},
@@ -12,7 +12,6 @@
     {"path": "logout.php", "critical": false},
     {"path": "updater.php", "critical": false},
     {"path": "includes/api.php", "critical": false},
-    {"path": "includes/config.php", "critical": true},
     {"path": "css/style.css", "critical": false},
     {"path": "js/app.js", "critical": false}
   ],
