@@ -35,22 +35,29 @@ $u = currentUser();
     <a href="#" data-page="strategy" onclick="showPage('strategy');return false;"><span class="icon">🧪</span>Strategy Tester</a>
     <a href="#" data-page="review" onclick="showPage('review');return false;"><span class="icon">📝</span>Weekly Review</a>
     <div class="nav-section">Account</div>
-    <a href="#" data-page="settings" onclick="showPage('settings');return false;"><span class="icon">⚙️</span>Settings</a>
+    <a href="#" data-page="profile" onclick="showPage('profile');return false;"><span class="icon">👤</span>Profile</a>
+    <a href="#" data-page="challenges" onclick="showPage('challenges');return false;"><span class="icon">🏆</span>Challenges</a>
     <a href="logout.php"><span class="icon">🚪</span>Logout</a>
     <a href="updater.php" style="margin-top:auto;border-top:1px solid var(--border);color:var(--text3)" id="update-link"><span class="icon">🔄</span>Check Update <span id="update-dot" style="display:none;width:8px;height:8px;border-radius:50%;background:var(--green);margin-left:auto"></span></a>
   </nav>
   <div class="sidebar-bottom">
+    <!-- Challenge Switcher -->
+    <div id="challenge-switcher" style="margin-bottom:8px">
+      <select id="sidebar-challenge-select" onchange="switchChallenge(this.value)" style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:7px 10px;font-size:11px;font-family:var(--font-body);cursor:pointer;outline:none">
+        <option>Loading...</option>
+      </select>
+    </div>
     <div class="balance-card">
       <div class="balance-label">Account Balance</div>
-      <div class="balance-val" id="sidebar-balance">$<?= number_format($u['account_balance'],2) ?></div>
+      <div class="balance-val" id="sidebar-balance">$<?= number_format($u['account_balance'] ?? 10000, 2) ?></div>
       <div class="dd-bar"><div class="dd-fill" id="dd-fill" style="width:0%"></div></div>
-      <div class="dd-label"><span id="dd-label">DD: 0%</span><span><?= $u['max_drawdown_pct'] ?>% max</span></div>
+      <div class="dd-label"><span id="dd-label">DD: 0%</span><span id="dd-max-label"><?= $u['max_drawdown_pct'] ?? 10 ?>% max</span></div>
     </div>
     <div class="sidebar-user">
-      <div class="avatar" id="sidebar-avatar" style="background:<?= htmlspecialchars($u['avatar_color']??'#4f7cff') ?>"><?= strtoupper(substr($u['display_name']??$u['username'],0,1)) ?></div>
+      <div class="avatar" id="sidebar-avatar" style="background:<?= htmlspecialchars($u['avatar_color'] ?? '#4f7cff') ?>"><?= strtoupper(substr($u['display_name'] ?? $u['username'], 0, 1)) ?></div>
       <div class="user-info">
-        <div class="user-name" id="sidebar-username"><?= htmlspecialchars($u['display_name']??$u['username']) ?></div>
-        <div class="user-role" id="sidebar-prop"><?= htmlspecialchars($u['prop_firm']??'BitFunded') ?></div>
+        <div class="user-name" id="sidebar-username"><?= htmlspecialchars($u['display_name'] ?? $u['username']) ?></div>
+        <div class="user-role" id="sidebar-prop"><?= htmlspecialchars($u['prop_firm'] ?? '') ?></div>
       </div>
     </div>
   </div>
@@ -67,7 +74,6 @@ $u = currentUser();
     </div>
     <div class="topbar-right">
       <span style="font-size:11px;color:var(--text3);display:none" id="today-info">Today: <span id="today-pnl" style="color:var(--green)">$0</span></span>
-
       <button class="btn btn-primary btn-sm" onclick="openTradeModal()">+ Trade</button>
       <button class="btn btn-ghost btn-sm" onclick="exportPDF()">🖨 PDF</button>
     </div>
@@ -84,7 +90,6 @@ $u = currentUser();
       <div class="kpi"><div class="kpi-label">Avg R</div><div class="kpi-val" id="kpi-r">—</div></div>
       <div class="kpi"><div class="kpi-label">Profit Factor</div><div class="kpi-val orange" id="kpi-pf">—</div></div>
     </div>
-    <!-- Streak mini-card -->
     <div style="display:flex;gap:10px;margin-bottom:14px">
       <div class="card" style="flex:1;padding:12px 16px">
         <div class="card-title" style="margin-bottom:6px">Current Streak</div>
@@ -117,11 +122,8 @@ $u = currentUser();
   <div class="page" id="page-trades">
     <div class="filter-bar">
       <input type="text" placeholder="🔍 Search..." id="trade-search" oninput="filterTrades(this.value)" style="max-width:180px">
-      <select id="filter-pair" onchange="loadTrades()" style="max-width:140px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:7px 12px;font-size:13px;outline:none">
+      <select id="filter-pair" onchange="loadTrades()" class="pair-select" style="max-width:140px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:7px 12px;font-size:13px;outline:none">
         <option value="" selected>All Pairs</option>
-        <option value="BTCUSDT">BTCUSDT</option>
-        <option value="ETHUSDT">ETHUSDT</option>
-        <option value="BNBUSDT">BNBUSDT</option>
       </select>
       <select id="filter-result" onchange="loadTrades()" style="max-width:130px"><option value="">All Results</option><option>Win</option><option>Loss</option><option>Break Even</option></select>
       <input type="date" id="filter-from" onchange="loadTrades()" title="From date">
@@ -219,57 +221,40 @@ $u = currentUser();
   <div class="page" id="page-calculator">
     <div style="max-width:800px;margin:0 auto">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-        <!-- Inputs -->
         <div class="card">
           <div class="card-title">Inputs</div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label>1. Full Trading Balance ($)</label>
-            <input type="number" id="calc-balance" step="0.01" placeholder="e.g. 9446">
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label>2. Stop Loss (%)</label>
-            <input type="number" id="calc-sl-pct" step="0.01" placeholder="e.g. 1.61">
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label>3. Risk Level (%)</label>
-            <input type="number" id="calc-risk-pct" step="0.01" placeholder="e.g. 0.25">
-          </div>
-          <div class="form-group" style="margin-bottom:20px">
-            <label>4. Leverage (x)</label>
-            <input type="number" id="calc-leverage" step="1" placeholder="e.g. 5">
-          </div>
+          <div class="form-group" style="margin-bottom:14px"><label>1. Full Trading Balance ($)</label><input type="number" id="calc-balance" step="0.01" placeholder="e.g. 9446"></div>
+          <div class="form-group" style="margin-bottom:14px"><label>2. Stop Loss (%)</label><input type="number" id="calc-sl-pct" step="0.01" placeholder="e.g. 1.61"></div>
+          <div class="form-group" style="margin-bottom:14px"><label>3. Risk Level (%)</label><input type="number" id="calc-risk-pct" step="0.01" placeholder="e.g. 0.25"></div>
+          <div class="form-group" style="margin-bottom:20px"><label>4. Leverage (x)</label><input type="number" id="calc-leverage" step="1" placeholder="e.g. 5"></div>
           <button class="btn btn-success" style="width:100%;padding:12px;font-size:14px" onclick="calcSimple()">Calculate</button>
         </div>
-        <!-- Results -->
         <div class="card" id="calc-results" style="display:flex;flex-direction:column;justify-content:center">
           <div class="card-title">Calculation Results</div>
-          <div id="calc-results-inner" style="color:var(--text3);text-align:center;padding:30px 0">
-            Enter your values and click Calculate
-          </div>
+          <div id="calc-results-inner" style="color:var(--text3);text-align:center;padding:30px 0">Enter your values and click Calculate</div>
         </div>
       </div>
-      <!-- FSA Rules reminder -->
       <div class="card" style="margin-top:16px">
-        <div class="card-title">FSA Risk Rules</div>
+        <div class="card-title">Risk Rules</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
           <div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center">
             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Recovery Mode</div>
             <div style="font-family:var(--font-head);font-size:18px;color:var(--orange)">0.25%</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">Below $10,000</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Below starting</div>
           </div>
           <div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center">
             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Normal Mode</div>
             <div style="font-family:var(--font-head);font-size:18px;color:var(--blue2)">0.50%</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">At $10,000</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">At starting balance</div>
           </div>
           <div style="background:var(--bg3);border-radius:8px;padding:12px;text-align:center">
             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Passing Mode</div>
             <div style="font-family:var(--font-head);font-size:18px;color:var(--green)">1.00%</div>
-            <div style="font-size:11px;color:var(--text3);margin-top:4px">Above $10,200</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">Above target</div>
           </div>
         </div>
         <div style="margin-top:12px;padding:10px;background:var(--bg3);border-radius:6px;font-size:12px;color:var(--text2);text-align:center">
-          ⚠️ Max 2 trades/day &nbsp;|&nbsp; Stop if -$200/day &nbsp;|&nbsp; Stop after 3 consecutive losses
+          ⚠️ Max 2 trades/day &nbsp;|&nbsp; Stop if daily limit hit &nbsp;|&nbsp; Stop after 3 consecutive losses
         </div>
       </div>
     </div>
@@ -299,27 +284,51 @@ $u = currentUser();
     <div id="reviews-list"></div>
   </div>
 
-  <!-- ── SETTINGS ── -->
-  <div class="page" id="page-settings">
-    <div style="max-width:700px">
+  <!-- ══ PROFILE SETTINGS ══ -->
+  <div class="page" id="page-profile">
+    <div style="max-width:600px">
       <div class="card" style="margin-bottom:14px">
-        <div class="card-title">Account Settings</div>
-        <div class="form-grid-2" style="gap:12px">
-          <div class="form-group"><label>Display Name</label><input type="text" id="set-display_name"></div>
-          <div class="form-group"><label>Prop Firm</label><input type="text" id="set-prop_firm"></div>
-          <div class="form-group"><label>Challenge Phase</label><input type="text" id="set-challenge_phase"></div>
-          <div class="form-group"><label>Avatar Color</label><input type="color" id="set-avatar_color" style="height:40px;cursor:pointer"></div>
-          <div class="form-group"><label>Starting Balance ($)</label><input type="number" step="0.01" id="set-starting_balance"></div>
-          <div class="form-group"><label>Current Balance ($)</label><input type="number" step="0.01" id="set-account_balance"></div>
-          <div class="form-group"><label>Max Drawdown (%)</label><input type="number" step="0.1" id="set-max_drawdown_pct"></div>
-          <div class="form-group"><label>Daily Loss Limit ($)</label><input type="number" step="0.01" id="set-daily_loss_limit"></div>
-          <div class="form-group"><label>Default Risk Per Trade (%)</label><input type="number" step="0.01" id="set-risk_per_trade_pct"></div>
-          <div class="form-group"><label>New Password (leave blank = no change)</label><input type="password" id="set-new-password" placeholder="••••••••"></div>
+        <div class="card-title">👤 Your Profile</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;padding:16px;background:var(--bg3);border-radius:var(--radius)">
+          <div class="avatar" id="profile-avatar-preview" style="width:56px;height:56px;font-size:22px;background:var(--blue)">A</div>
+          <div>
+            <div style="font-family:var(--font-head);font-size:14px" id="profile-name-preview">Trader</div>
+            <div style="font-size:12px;color:var(--text3)" id="profile-bio-preview">No bio yet</div>
+          </div>
         </div>
-        <div style="margin-top:16px"><button class="btn btn-primary" onclick="saveSettings()">Save Settings</button></div>
+        <div class="form-grid-2" style="gap:12px">
+          <div class="form-group"><label>Display Name</label><input type="text" id="prof-display_name" placeholder="Your name"></div>
+          <div class="form-group"><label>Avatar Color</label><input type="color" id="prof-avatar_color" value="#4f7cff" style="height:40px;cursor:pointer"></div>
+          <div class="form-group full"><label>Bio (optional)</label><textarea id="prof-bio" rows="2" placeholder="Tell traders about yourself..."></textarea></div>
+        </div>
       </div>
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-title">🔒 Change Password</div>
+        <div class="form-grid-2" style="gap:12px">
+          <div class="form-group"><label>Current Password</label><input type="password" id="prof-current_password" placeholder="••••••••"></div>
+          <div class="form-group"><label>New Password</label><input type="password" id="prof-new_password" placeholder="••••••••"></div>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="saveProfile()" style="width:100%;padding:12px">Save Profile</button>
     </div>
   </div>
+
+  <!-- ══ CHALLENGES (Trading Accounts) ══ -->
+  <div class="page" id="page-challenges">
+    <div style="max-width:800px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div>
+          <div style="font-family:var(--font-head);font-size:13px;letter-spacing:1px">YOUR CHALLENGES</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">Manage your prop firm accounts and challenges</div>
+        </div>
+        <button class="btn btn-success" onclick="openChallengeModal()">+ New Challenge</button>
+      </div>
+      <div id="challenges-list"></div>
+    </div>
+  </div>
+
+  <!-- ── SETTINGS (backward compat redirect) ── -->
+  <div class="page" id="page-settings" style="display:none"></div>
 
 </main>
 </div>
@@ -340,7 +349,7 @@ $u = currentUser();
     <button class="btn btn-success" style="flex:1" onclick="proceedTrade()">Proceed to Trade →</button>
   </div>
 </div>
-<div id="checklist-overlay" onclick="document.getElementById('checklist-popup').classList.remove('open')" style="display:none;position:fixed;inset:0;z-index:290" class="checklist-popup open" id="checklist-popup"></div>
+<div id="checklist-overlay" onclick="document.getElementById('checklist-popup').classList.remove('open')" style="display:none;position:fixed;inset:0;z-index:290"></div>
 
 <!-- ══════════════════════════════════════════════════════
      TRADE MODAL
@@ -354,7 +363,6 @@ $u = currentUser();
         <div class="form-group"><label>Trade Date</label><input type="date" id="f-trade_date" name="trade_date" required></div>
         <div class="form-group"><label>Session</label><select id="f-session" name="session"><option>London</option><option>New York</option><option>Asia</option><option>Other</option></select></div>
         <div class="form-group"><label>Pair</label><select id="f-pair" name="pair" class="pair-select"></select></div>
-
         <div class="section-divider"></div>
         <div class="section-label">Time In</div>
         <div class="form-group"><label>Date In</label><input type="date" id="f-time_in_date" name="time_in_date"></div>
@@ -362,7 +370,6 @@ $u = currentUser();
         <div class="form-group"><label>Date Out</label><input type="date" id="f-time_out_date" name="time_out_date"></div>
         <div class="form-group"><label>Time Out</label><input type="time" id="f-time_out_time" name="time_out_time"></div>
         <div class="form-group"><label>Direction</label><select id="f-direction" name="direction"><option>Long</option><option>Short</option></select></div>
-
         <div class="section-divider"></div>
         <div class="section-label">Prices</div>
         <div class="form-group"><label>Entry Price</label><input type="number" step="0.0001" id="f-entry_price" name="entry_price"></div>
@@ -371,7 +378,6 @@ $u = currentUser();
         <div class="form-group"><label>Exit Price</label><input type="number" step="0.0001" id="f-exit_price" name="exit_price"></div>
         <div class="form-group"><label>Lot Size</label><input type="number" step="0.0001" id="f-lot_size" name="lot_size"></div>
         <div class="form-group"><label>Fees ($)</label><input type="number" step="0.01" id="f-fees" name="fees" value="0"></div>
-
         <div class="section-divider"></div>
         <div class="section-label">Outcome</div>
         <div class="form-group"><label>Result</label><select id="f-result" name="result"><option value="">—</option><option>Win</option><option>Loss</option><option>Break Even</option><option>Open</option></select></div>
@@ -379,7 +385,6 @@ $u = currentUser();
         <div class="form-group"><label>FSA Rules</label><select id="f-fsa_rules" name="fsa_rules"><option value="">—</option><option>All 5</option><option>4 of 5</option><option>3 of 5</option><option>2 of 5</option></select></div>
         <div class="form-group"><label>Confidence</label><select id="f-confidence" name="confidence"><option value="">—</option><option>High</option><option>Medium</option><option>Low</option></select></div>
         <div class="form-group"><label>Exec Score (1-10)</label><input type="number" min="1" max="10" id="f-exec_score" name="exec_score"></div>
-
         <div class="section-divider"></div>
         <div class="section-label">Chart Screenshot</div>
         <div class="form-group full">
@@ -397,7 +402,7 @@ $u = currentUser();
   </div>
 </div>
 
-<!-- Screenshot viewer -->
+<!-- View Trade -->
 <div class="modal-overlay" id="view-trade-modal">
   <div class="modal" style="max-width:900px">
     <h3 id="view-trade-title" style="font-size:12px;letter-spacing:1px;color:var(--blue2);margin-bottom:16px">Trade Details</h3>
@@ -405,13 +410,12 @@ $u = currentUser();
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-     REVIEW MODAL
-══════════════════════════════════════════════════════ -->
+<!-- Review Modal -->
 <div class="modal-overlay" id="review-modal">
   <div class="modal">
     <h3>📝 WEEKLY REVIEW</h3>
     <input type="hidden" id="review-id">
+    <form id="review-form">
     <div class="form-grid">
       <div class="form-group"><label>Week Start</label><input type="date" id="r-week_start"></div>
       <div class="form-group"><label>Week End</label><input type="date" id="r-week_end"></div>
@@ -422,6 +426,7 @@ $u = currentUser();
       <div class="form-group full"><label>What To Improve</label><textarea id="r-what_to_improve" rows="2"></textarea></div>
       <div class="form-group full"><label>Rules Followed</label><textarea id="r-rules_followed" rows="2"></textarea></div>
     </div>
+    </form>
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('review-modal').classList.remove('open')">Cancel</button>
       <button class="btn btn-primary" onclick="saveReview()">Save Review</button>
@@ -429,9 +434,7 @@ $u = currentUser();
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-     STRATEGY MODAL
-══════════════════════════════════════════════════════ -->
+<!-- Strategy Modal -->
 <div class="modal-overlay" id="strategy-modal">
   <div class="modal">
     <h3>🧪 LOG STRATEGY TEST TRADE</h3>
@@ -476,9 +479,7 @@ $u = currentUser();
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-     PAIRS MODAL
-══════════════════════════════════════════════════════ -->
+<!-- Pairs Modal -->
 <div class="modal-overlay" id="pairs-modal">
   <div class="modal" style="max-width:400px">
     <h3>⚙️ MANAGE PAIRS</h3>
@@ -491,13 +492,11 @@ $u = currentUser();
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-     IMPORT MODAL
-══════════════════════════════════════════════════════ -->
+<!-- Import Modal -->
 <div class="modal-overlay" id="import-modal">
   <div class="modal" style="max-width:460px">
     <h3>📥 IMPORT FROM EXCEL</h3>
-    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Upload your FSA Trading Journal Excel file. The app will read the Trade Log sheet and import all trades.</p>
+    <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Upload your Trading Journal Excel file. The app will read the Trade Log sheet and import all trades to your active challenge.</p>
     <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:var(--text3)">
       <strong style="color:var(--text2)">Expected columns:</strong> Date, Session, Pair, Direction, Entry, Stop Loss, Take Profit, Exit Price, Lot Size, P&L $, Fees $, R Multiple, Result, Confidence, Fib Level, Notes
     </div>
@@ -505,6 +504,30 @@ $u = currentUser();
     <div class="form-actions">
       <button class="btn btn-ghost" onclick="document.getElementById('import-modal').classList.remove('open')">Cancel</button>
       <button class="btn btn-primary" onclick="importExcel()">Import Trades</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CHALLENGE MODAL ══ -->
+<div class="modal-overlay" id="challenge-modal">
+  <div class="modal" style="max-width:560px">
+    <h3 id="challenge-modal-title">🏆 NEW CHALLENGE</h3>
+    <input type="hidden" id="ch-id">
+    <div class="form-grid-2" style="gap:12px">
+      <div class="form-group full"><label>Challenge Name</label><input type="text" id="ch-name" placeholder="e.g. BitFunded $10K Phase 1"></div>
+      <div class="form-group"><label>Prop Firm</label><input type="text" id="ch-prop_firm" placeholder="e.g. BitFunded, FTMO, MyForexFunds"></div>
+      <div class="form-group"><label>Phase</label><select id="ch-challenge_phase"><option>Phase 1</option><option>Phase 2</option><option>Funded</option><option>Free Trial</option><option>Personal</option></select></div>
+      <div class="form-group"><label>Starting Balance ($)</label><input type="number" step="0.01" id="ch-starting_balance" value="10000"></div>
+      <div class="form-group"><label>Current Balance ($)</label><input type="number" step="0.01" id="ch-current_balance" value="10000"></div>
+      <div class="form-group"><label>Max Drawdown (%)</label><input type="number" step="0.1" id="ch-max_drawdown_pct" value="10"></div>
+      <div class="form-group"><label>Daily Loss Limit ($)</label><input type="number" step="0.01" id="ch-daily_loss_limit" value="500"></div>
+      <div class="form-group"><label>Risk Per Trade (%)</label><input type="number" step="0.01" id="ch-risk_per_trade_pct" value="0.5"></div>
+      <div class="form-group"><label>Profit Target (%)</label><input type="number" step="0.1" id="ch-profit_target_pct" value="8"></div>
+      <div class="form-group"><label>Status</label><select id="ch-status"><option value="active">Active</option><option value="completed">Completed</option><option value="failed">Failed</option></select></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-ghost" onclick="document.getElementById('challenge-modal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveChallenge()">Save Challenge</button>
     </div>
   </div>
 </div>
@@ -529,7 +552,6 @@ function fillTradeFromCalc(){
     showPage('trades');
     setTimeout(()=>openTradeModal(),100);
 }
-// Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(el=>{
     el.addEventListener('click',e=>{if(e.target===el)el.classList.remove('open');});
 });
