@@ -1,6 +1,6 @@
 {
-    "version": "3.0.0",
-    "name": "v3.0.0 — Modular Frontend (Phase 2)",
+    "version": "3.1.0",
+    "name": "v3.1.0 — Modular Frontend (Phase 2)",
     "description": "Split monolithic index.php (562 lines) into 8 pages + 8 modals. Split app.js (803 lines) into 10 focused JS modules. New index.php is a 110-line shell. Zero visual changes — app works exactly as before but frontend is fully modular.",
     "files": [
         "app/index.php",
