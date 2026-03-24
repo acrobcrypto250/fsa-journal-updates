@@ -32,7 +32,7 @@ function toast(msg,type='success'){
 }
 function destroyCharts(...keys){keys.forEach(k=>{if(charts[k]){charts[k].destroy();delete charts[k];}});}
 function chartOpts(extra={}){
-    return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8892b0',font:{size:11},boxWidth:12}}},scales:{x:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}},y:{ticks:{color:'#4a5580',font:{size:10}},grid:{color:'rgba(255,255,255,0.03)'}}}, ...extra};
+    return {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#6C7A8D',font:{size:11,family:'Outfit'},boxWidth:12}}},scales:{x:{ticks:{color:'#6C7A8D',font:{size:10,family:'Outfit'}},grid:{color:'rgba(0,0,0,0.06)'}},y:{ticks:{color:'#6C7A8D',font:{size:10,family:'Outfit'}},grid:{color:'rgba(0,0,0,0.06)'}}}, ...extra};
 }
 
 // ── NAV ──────────────────────────────────────────────────
