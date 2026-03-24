@@ -1,1 +1,513 @@
 
+/**
+ * FundedControl — Brand CSS (v3.2.0 Phase 3)
+ * "Light Authority" — inspired by Chase, Bloomberg, Wise
+ * 
+ * This file overrides style.css variables to transform
+ * the entire app from dark theme to FundedControl brand.
+ * Sidebar stays deep blue (only dark element).
+ * Everything else is light, clean, professional.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+    /* ── Backgrounds ── */
+    --bg: #FAFBFC;
+    --bg2: #FFFFFF;
+    --bg3: #F1F5F9;
+
+    /* ── Cards ── */
+    --card: #FFFFFF;
+    --card2: #F8FAFC;
+
+    /* ── Borders ── */
+    --border: #E2E8F0;
+    --border2: #CBD5E1;
+
+    /* ── Text ── */
+    --text: #0B1D3A;
+    --text2: #475569;
+    --text3: #6C7A8D;
+
+    /* ── Brand Colors ── */
+    --blue: #1A56DB;
+    --blue2: #3B82F6;
+    --green: #0FA958;
+    --green2: #10B981;
+    --red: #DC3545;
+    --red2: #EF4444;
+    --orange: #F59E0B;
+    --gold: #D97706;
+    --purple: #7C3AED;
+    --teal: #0891B2;
+
+    /* ── Fonts — Outfit + JetBrains Mono ── */
+    --font-head: 'Outfit', sans-serif;
+    --font-body: 'Outfit', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* ── Sidebar (stays dark) ── */
+    --fc-sidebar: #0B1D3A;
+    --fc-sidebar-hover: #122847;
+    --fc-sidebar-active: rgba(26, 86, 219, 0.25);
+    --fc-sidebar-text: #F0F3F7;
+    --fc-sidebar-muted: #7A8FA5;
+    --fc-sidebar-border: rgba(255, 255, 255, 0.08);
+}
+
+/* ══════════════════════════════════════════════════════
+   GLOBAL OVERRIDES
+══════════════════════════════════════════════════════ */
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+}
+
+/* ══════════════════════════════════════════════════════
+   SIDEBAR — Deep Blue Authority (only dark element)
+══════════════════════════════════════════════════════ */
+
+.sidebar {
+    background: var(--fc-sidebar) !important;
+    border-right: 1px solid var(--fc-sidebar-border);
+}
+
+.sidebar-logo {
+    padding: 20px 18px 16px;
+    border-bottom: 1px solid var(--fc-sidebar-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sidebar-logo img {
+    height: 36px;
+    width: auto;
+}
+
+.sidebar-logo h1 {
+    font-family: var(--font-head);
+    font-size: 14px;
+    font-weight: 600;
+    color: #FFFFFF;
+    letter-spacing: 1px;
+    text-transform: none;
+}
+
+.sidebar-logo p {
+    color: var(--fc-sidebar-muted);
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+/* Sidebar navigation */
+.nav a {
+    color: var(--fc-sidebar-muted);
+    font-family: var(--font-body);
+    font-weight: 400;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.nav a:hover {
+    color: var(--fc-sidebar-text);
+    background: var(--fc-sidebar-hover);
+}
+
+.nav a.active {
+    color: #FFFFFF;
+    background: var(--fc-sidebar-active);
+    border-left-color: var(--blue2);
+    font-weight: 500;
+}
+
+.nav-section {
+    color: var(--fc-sidebar-muted);
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: 9px;
+    letter-spacing: 2px;
+}
+
+/* Sidebar bottom */
+.sidebar-bottom {
+    border-top: 1px solid var(--fc-sidebar-border);
+}
+
+.balance-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--fc-sidebar-border);
+}
+
+.balance-label {
+    color: var(--fc-sidebar-muted);
+}
+
+.balance-val {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--green);
+}
+
+.dd-bar {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.dd-label,
+.dd-label span {
+    color: var(--fc-sidebar-muted);
+}
+
+.user-name {
+    color: var(--fc-sidebar-text);
+    font-family: var(--font-body);
+    font-weight: 500;
+}
+
+.user-role {
+    color: var(--fc-sidebar-muted);
+}
+
+/* Sidebar challenge select */
+#sidebar-challenge-select {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: var(--fc-sidebar-border) !important;
+    color: var(--fc-sidebar-text) !important;
+    font-family: var(--font-body) !important;
+}
+
+#sidebar-challenge-select option {
+    background: var(--fc-sidebar);
+    color: var(--fc-sidebar-text);
+}
+
+/* Update link in sidebar */
+#update-link {
+    color: var(--fc-sidebar-muted) !important;
+    border-top-color: var(--fc-sidebar-border) !important;
+}
+
+/* ══════════════════════════════════════════════════════
+   TOPBAR — Clean white
+══════════════════════════════════════════════════════ */
+
+.topbar {
+    background: #FFFFFF;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.topbar h2 {
+    font-family: var(--font-head);
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.5px;
+}
+
+/* ══════════════════════════════════════════════════════
+   CARDS — White with subtle borders
+══════════════════════════════════════════════════════ */
+
+.card {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.card-title {
+    font-family: var(--font-head);
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text3);
+    letter-spacing: 1.5px;
+}
+
+/* ══════════════════════════════════════════════════════
+   KPI GRID
+══════════════════════════════════════════════════════ */
+
+.kpi {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.kpi:hover {
+    border-color: var(--border2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.kpi-label {
+    font-family: var(--font-body);
+    font-weight: 500;
+    color: var(--text3);
+}
+
+.kpi-val {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text);
+}
+
+/* ══════════════════════════════════════════════════════
+   TABLES — Clean, light
+══════════════════════════════════════════════════════ */
+
+th {
+    background: var(--bg3);
+    color: var(--text3);
+    font-family: var(--font-body);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border);
+}
+
+td {
+    color: var(--text2);
+    border-bottom: 1px solid var(--border);
+}
+
+tr:hover td {
+    background: var(--bg3);
+    color: var(--text);
+}
+
+/* ══════════════════════════════════════════════════════
+   BADGES — Light bg + dark text
+══════════════════════════════════════════════════════ */
+
+.badge-win { background: #E3F2E8; color: #1B7A3D; }
+.badge-loss { background: #FDEAEA; color: #DC3545; }
+.badge-be { background: #FEF3CD; color: #856404; }
+.badge-long { background: #E8F0FE; color: #1A56DB; }
+.badge-short { background: #FDEAEA; color: #DC3545; }
+.badge-high { background: #E3F2E8; color: #1B7A3D; }
+.badge-medium { background: #FEF3CD; color: #856404; }
+.badge-low { background: #FDEAEA; color: #DC3545; }
+
+.pnl-pos { color: var(--green); font-family: var(--font-mono); font-weight: 500; }
+.pnl-neg { color: var(--red); font-family: var(--font-mono); font-weight: 500; }
+
+/* ══════════════════════════════════════════════════════
+   FORMS & INPUTS — Light theme
+══════════════════════════════════════════════════════ */
+
+input, select, textarea {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-body);
+}
+
+input:focus, select:focus, textarea:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.1);
+}
+
+input::placeholder, textarea::placeholder {
+    color: #94A3B8;
+}
+
+select option {
+    background: #FFFFFF;
+    color: var(--text);
+}
+
+label {
+    font-family: var(--font-body);
+    font-weight: 500;
+    color: var(--text3);
+}
+
+/* ══════════════════════════════════════════════════════
+   BUTTONS — Brand colors
+══════════════════════════════════════════════════════ */
+
+.btn {
+    font-family: var(--font-body);
+    font-weight: 500;
+}
+
+.btn-primary {
+    background: var(--blue);
+    color: #FFFFFF;
+}
+
+.btn-success {
+    background: var(--green);
+    color: #FFFFFF;
+}
+
+.btn-danger {
+    background: var(--red);
+    color: #FFFFFF;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--text2);
+    border: 1px solid var(--border);
+}
+
+.btn-ghost:hover {
+    border-color: var(--border2);
+    background: var(--bg3);
+    color: var(--text);
+}
+
+/* ══════════════════════════════════════════════════════
+   MODALS — Light background
+══════════════════════════════════════════════════════ */
+
+.modal-overlay {
+    background: rgba(11, 29, 58, 0.6);
+    backdrop-filter: blur(4px);
+}
+
+.modal {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.modal h3 {
+    font-family: var(--font-head);
+    font-weight: 600;
+    color: var(--blue);
+}
+
+/* ══════════════════════════════════════════════════════
+   CHECKLIST POPUP
+══════════════════════════════════════════════════════ */
+
+.checklist-popup {
+    background: #FFFFFF;
+    border: 2px solid var(--blue);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.checklist-popup h3 {
+    font-family: var(--font-head);
+    font-weight: 600;
+    color: var(--blue);
+}
+
+.check-item {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+}
+
+.check-item.checked {
+    background: #E3F2E8;
+    border-color: var(--green);
+}
+
+.check-text {
+    color: var(--text2);
+}
+
+.check-item.checked .check-text {
+    color: #1B7A3D;
+}
+
+/* ══════════════════════════════════════════════════════
+   ALERTS
+══════════════════════════════════════════════════════ */
+
+.alert-danger { background: #FDEAEA; border-color: #F5C6CB; color: var(--red); }
+.alert-warning { background: #FEF3CD; border-color: #FFEEBA; color: #856404; }
+.alert-info { background: #E8F0FE; border-color: #B6D4FE; color: var(--blue); }
+
+/* ══════════════════════════════════════════════════════
+   STATS
+══════════════════════════════════════════════════════ */
+
+.stat-row {
+    border-bottom: 1px solid var(--border);
+}
+
+.stat-label {
+    color: var(--text2);
+    font-family: var(--font-body);
+}
+
+.stat-val {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    color: var(--text);
+}
+
+/* ══════════════════════════════════════════════════════
+   REVIEWS
+══════════════════════════════════════════════════════ */
+
+.review-card {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+}
+
+.review-week {
+    font-family: var(--font-mono);
+    color: var(--blue);
+}
+
+/* ══════════════════════════════════════════════════════
+   FILTER BAR
+══════════════════════════════════════════════════════ */
+
+.filter-bar input, .filter-bar select {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+/* ══════════════════════════════════════════════════════
+   TOAST — Light theme
+══════════════════════════════════════════════════════ */
+
+.toast {
+    background: #FFFFFF;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    color: var(--text);
+}
+
+.toast.success { border-color: var(--green); color: var(--green); }
+.toast.error { border-color: var(--red); color: var(--red); }
+.toast.warning { border-color: var(--orange); color: var(--orange); }
+
+/* ══════════════════════════════════════════════════════
+   SCROLLBAR — Light
+══════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+
+/* ══════════════════════════════════════════════════════
+   NUMBER FORMATTING — JetBrains Mono everywhere
+══════════════════════════════════════════════════════ */
+
+.kpi-val,
+.balance-val,
+.pnl-pos,
+.pnl-neg,
+.stat-val,
+.review-week,
+.check-score,
+#kpi-streak {
+    font-family: var(--font-mono) !important;
+    font-weight: 500;
+}
+
+/* ══════════════════════════════════════════════════════
+   PRINT OVERRIDE
+══════════════════════════════════════════════════════ */
+
+@media print {
+    body { background: white; color: black; }
+    .card { border: 1px solid #ddd; }
+}
