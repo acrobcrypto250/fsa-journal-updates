@@ -7,10 +7,11 @@ $u = currentUser();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
-<title>FSA Trading Journal</title>
+<title>FundedControl — Professional Trading Journal</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/brand.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
@@ -20,8 +21,11 @@ $u = currentUser();
 <!-- ══ SIDEBAR ══ -->
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <h1>FSA JOURNAL</h1>
-    <p>Professional Trading Journal</p>
+    <img src="media/fc-logo.png" alt="FC" style="height:32px;width:auto">
+    <div>
+      <h1>FundedControl</h1>
+      <p>Get Funded. Stay Funded.</p>
+    </div>
   </div>
   <nav class="nav">
     <div class="nav-section">Main</div>
