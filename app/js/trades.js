@@ -70,6 +70,8 @@ function viewTrade(id) {
 
     // Build slideshow from screenshots_data or fallback to single screenshot
     const images = t.screenshots_data || [];
+    window._lightboxImages = images;
+    window._lightboxUid = uid;
     let imgHtml = '';
 
     if (images.length > 0) {
@@ -79,7 +81,7 @@ function viewTrade(id) {
                     ${images.map((img, idx) => `
                         <div class="slide" style="${idx > 0 ? 'display:none' : ''}" data-slide="${idx}">
                             <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;text-align:center">${img.label || 'Chart'}</div>
-                            <img src="media/uploads/${uid}/${img.file}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox('media/uploads/${uid}/${img.file}','${img.label||'Chart'}')" title="Click to zoom">
+                            <img src="media/uploads/${uid}/${img.file}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox(${idx})" title="Click to zoom">
                         </div>
                     `).join('')}
                 </div>
@@ -95,8 +97,8 @@ function viewTrade(id) {
                 ` : ''}
             </div>`;
     } else if (t.screenshot) {
-        // Backward compat: single screenshot
-        imgHtml = `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox(this.src,'Chart')" title="Click to zoom">`;
+        window._lightboxImages = [{file: t.screenshot, label: 'Chart'}];
+        imgHtml = `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:zoom-in" onclick="openLightbox(0)" title="Click to zoom">`;
     } else {
         imgHtml = `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3);font-size:13px">📷 No chart screenshots uploaded</div>`;
     }
@@ -161,26 +163,75 @@ function goToSlide(idx) {
     window._currentSlide = idx;
 }
 
-// ── LIGHTBOX ZOOM ─────────────────────────────────────────
-function openLightbox(src, label) {
-    // Remove existing lightbox if any
+// ── LIGHTBOX ZOOM WITH NAVIGATION ──────────────────────────
+window._lightboxImages = [];
+window._lightboxUid = 1;
+window._lightboxIdx = 0;
+
+function openLightbox(idx) {
+    window._lightboxIdx = idx;
+    renderLightbox();
+}
+
+function renderLightbox() {
+    const imgs = window._lightboxImages;
+    const uid = window._lightboxUid;
+    const idx = window._lightboxIdx;
+    if (!imgs.length) return;
+
+    const img = imgs[idx];
+    const src = `media/uploads/${uid}/${img.file}`;
+    const label = img.label || 'Chart';
+    const hasMultiple = imgs.length > 1;
+
+    // Remove existing
     const existing = document.getElementById('fc-lightbox');
     if (existing) existing.remove();
 
     const overlay = document.createElement('div');
     overlay.id = 'fc-lightbox';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:zoom-out;padding:20px';
-    overlay.onclick = () => overlay.remove();
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
     overlay.innerHTML = `
-        <div style="color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;font-family:var(--font-head)">${label}</div>
-        <img src="${src}" style="max-width:95vw;max-height:85vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,0.5)" onclick="event.stopPropagation();window.open('${src}','_blank')">
-        <div style="color:#666;font-size:11px;margin-top:12px">Click image to open full size • Click background to close</div>
+        <div style="color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;font-family:var(--font-head)">${label}${hasMultiple ? ` &nbsp;·&nbsp; ${idx+1} / ${imgs.length}` : ''}</div>
+        <div style="display:flex;align-items:center;gap:16px;max-width:95vw">
+            ${hasMultiple ? `<button onclick="event.stopPropagation();lightboxNav(-1)" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:50%;width:48px;height:48px;color:#fff;font-size:22px;cursor:pointer;flex-shrink:0;transition:background 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">←</button>` : ''}
+            <img src="${src}" style="max-width:${hasMultiple?'80vw':'95vw'};max-height:80vh;object-fit:contain;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,0.5);cursor:pointer" onclick="event.stopPropagation();window.open('${src}','_blank')" title="Open full size in new tab">
+            ${hasMultiple ? `<button onclick="event.stopPropagation();lightboxNav(1)" style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:50%;width:48px;height:48px;color:#fff;font-size:22px;cursor:pointer;flex-shrink:0;transition:background 0.2s" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">→</button>` : ''}
+        </div>
+        ${hasMultiple ? `
+            <div style="display:flex;gap:6px;margin-top:14px">
+                ${imgs.map((im, i) => `<button onclick="event.stopPropagation();lightboxGoTo(${i})" style="padding:4px 12px;font-size:10px;border-radius:6px;border:1px solid ${i===idx?'rgba(26,86,219,0.8)':'rgba(255,255,255,0.15)'};background:${i===idx?'rgba(26,86,219,0.6)':'rgba(255,255,255,0.05)'};color:#fff;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;transition:all 0.2s">${im.label||'Chart'}</button>`).join('')}
+            </div>
+        ` : ''}
+        <div style="color:#555;font-size:11px;margin-top:12px">Click image to open full size &nbsp;·&nbsp; Click background or press Esc to close${hasMultiple ? ' &nbsp;·&nbsp; ← → to navigate' : ''}</div>
     `;
     document.body.appendChild(overlay);
 
-    // Close on Escape key
-    const closeOnEsc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', closeOnEsc); } };
-    document.addEventListener('keydown', closeOnEsc);
+    // Keyboard navigation
+    const keyHandler = (e) => {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', keyHandler); }
+        if (e.key === 'ArrowLeft' && hasMultiple) lightboxNav(-1);
+        if (e.key === 'ArrowRight' && hasMultiple) lightboxNav(1);
+    };
+    // Remove old handler if exists
+    if (window._lightboxKeyHandler) document.removeEventListener('keydown', window._lightboxKeyHandler);
+    window._lightboxKeyHandler = keyHandler;
+    document.addEventListener('keydown', keyHandler);
+}
+
+function lightboxNav(dir) {
+    const imgs = window._lightboxImages;
+    window._lightboxIdx += dir;
+    if (window._lightboxIdx >= imgs.length) window._lightboxIdx = 0;
+    if (window._lightboxIdx < 0) window._lightboxIdx = imgs.length - 1;
+    renderLightbox();
+}
+
+function lightboxGoTo(idx) {
+    window._lightboxIdx = idx;
+    renderLightbox();
 }
 
 // ── TRADE MODAL ─────────────────────────────────────────
