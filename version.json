@@ -1,11 +1,13 @@
 {
-    "current_version": "3.4.1",
+    "current_version": "3.4.2",
     "release_date": "2026-03-31",
     "changelog": [
-        "Fixed screenshot upload path — images now save to correct directory",
-        "Fixed broken image display in trade view"
+        "Lightbox zoom: click any screenshot to view fullscreen with dark overlay",
+        "Press Escape or click background to close lightbox",
+        "Click zoomed image to open original in new tab",
+        "Save speed fix: trades without images save instantly via JSON instead of FormData"
     ],
     "files": [
-        {"path": "includes/helpers.php", "critical": false}
+        {"path": "js/trades.js", "critical": false}
     ]
 }
