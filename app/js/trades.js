@@ -1,6 +1,6 @@
 /**
- * FundedControl — Trades Module (v3.0.0 Phase 2)
- * Trade CRUD, table rendering, view trade, pairs management, checklist
+ * FundedControl — Trades Module (v3.4.0)
+ * Trade CRUD, multi-image slideshow, P&L validation, pairs, checklist
  */
 
 // ── TRADE LOG ────────────────────────────────────────────
@@ -61,14 +61,45 @@ function renderTradesTable(trades) {
     </tr>`).join('');
 }
 
+// ── VIEW TRADE WITH SLIDESHOW ────────────────────────────
 function viewTrade(id) {
     const t = allTrades.find(t=>t.id==id);
     if(!t) return;
     const u = currentUser;
     const uid = u?.id || t.user_id || 1;
-    const imgHtml = t.screenshot
-        ? `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:400px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')" title="Click to open full size">`
-        : `<div style="height:160px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3);font-size:13px">📷 No chart screenshot uploaded</div>`;
+
+    // Build slideshow from screenshots_data or fallback to single screenshot
+    const images = t.screenshots_data || [];
+    let imgHtml = '';
+
+    if (images.length > 0) {
+        imgHtml = `
+            <div id="trade-slideshow" style="position:relative">
+                <div id="slide-container">
+                    ${images.map((img, idx) => `
+                        <div class="slide" style="${idx > 0 ? 'display:none' : ''}" data-slide="${idx}">
+                            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;text-align:center">${img.label || 'Chart'}</div>
+                            <img src="media/uploads/${uid}/${img.file}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')" title="Click to open full size">
+                        </div>
+                    `).join('')}
+                </div>
+                ${images.length > 1 ? `
+                    <div style="display:flex;justify-content:center;align-items:center;gap:12px;margin-top:8px">
+                        <button onclick="slideNav(-1)" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;color:var(--text);font-size:16px">←</button>
+                        <span id="slide-counter" style="font-size:11px;color:var(--text3);font-family:var(--font-head)">1 / ${images.length}</span>
+                        <button onclick="slideNav(1)" style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;color:var(--text);font-size:16px">→</button>
+                    </div>
+                    <div style="display:flex;justify-content:center;gap:4px;margin-top:6px">
+                        ${images.map((img, idx) => `<button onclick="goToSlide(${idx})" style="padding:2px 8px;font-size:9px;border-radius:4px;border:1px solid var(--border);background:${idx===0?'var(--blue)':'var(--bg3)'};color:${idx===0?'#fff':'var(--text3)'};cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" class="slide-tab" data-tab="${idx}">${img.label || 'Chart'}</button>`).join('')}
+                    </div>
+                ` : ''}
+            </div>`;
+    } else if (t.screenshot) {
+        // Backward compat: single screenshot
+        imgHtml = `<img src="media/uploads/${uid}/${t.screenshot}" style="width:100%;max-height:350px;object-fit:contain;border-radius:8px;border:1px solid var(--border);cursor:pointer" onclick="window.open(this.src,'_blank')" title="Click to open full size">`;
+    } else {
+        imgHtml = `<div style="height:120px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border-radius:8px;color:var(--text3);font-size:13px">📷 No chart screenshots uploaded</div>`;
+    }
 
     document.getElementById('view-trade-content').innerHTML = `
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
@@ -102,21 +133,63 @@ function viewTrade(id) {
     `;
     document.getElementById('view-trade-title').textContent = `Trade #${t.id} — ${t.pair} ${t.direction} — ${t.trade_date}`;
     document.getElementById('view-trade-modal').classList.add('open');
+
+    // Reset slideshow to first slide
+    window._currentSlide = 0;
 }
 
+// ── SLIDESHOW NAVIGATION ──────────────────────────────────
+window._currentSlide = 0;
+function slideNav(dir) {
+    const slides = document.querySelectorAll('#slide-container .slide');
+    if (!slides.length) return;
+    window._currentSlide += dir;
+    if (window._currentSlide >= slides.length) window._currentSlide = 0;
+    if (window._currentSlide < 0) window._currentSlide = slides.length - 1;
+    goToSlide(window._currentSlide);
+}
+function goToSlide(idx) {
+    const slides = document.querySelectorAll('#slide-container .slide');
+    const tabs = document.querySelectorAll('.slide-tab');
+    slides.forEach((s, i) => s.style.display = i === idx ? '' : 'none');
+    tabs.forEach((t, i) => {
+        t.style.background = i === idx ? 'var(--blue)' : 'var(--bg3)';
+        t.style.color = i === idx ? '#fff' : 'var(--text3)';
+    });
+    const counter = document.getElementById('slide-counter');
+    if (counter) counter.textContent = (idx + 1) + ' / ' + slides.length;
+    window._currentSlide = idx;
+}
+
+// ── TRADE MODAL ─────────────────────────────────────────
 function openTradeModal(data=null) {
     loadPairs();
     document.getElementById('trade-form').reset();
     document.getElementById('trade-id').value=data?.id||'';
     document.getElementById('screenshot-current').innerHTML='';
+    // Clear file inputs
+    for (let i = 1; i <= 4; i++) {
+        const inp = document.getElementById('f-screenshot_' + i);
+        if (inp) inp.value = '';
+        const prev = document.getElementById('preview-' + i);
+        if (prev) prev.innerHTML = '';
+    }
     if(data){
         const fields=['trade_date','session','pair','direction','entry_price','stop_loss','take_profit','exit_price','lot_size','fees','result','confidence','exec_score','fib_level','fsa_rules','notes'];
         fields.forEach(k=>{ const el=document.getElementById('f-'+k); if(el&&data[k]!==null&&data[k]!==undefined) el.value=data[k]; });
         if(data.time_in) { const d=data.time_in.replace(' ','T'); const parts=d.split('T'); document.getElementById('f-time_in_date').value=parts[0]; document.getElementById('f-time_in_time').value=parts[1]?.substring(0,5)||''; }
         if(data.time_out) { const d=data.time_out.replace(' ','T'); const parts=d.split('T'); document.getElementById('f-time_out_date').value=parts[0]; document.getElementById('f-time_out_time').value=parts[1]?.substring(0,5)||''; }
-        if(data.screenshot) {
+        // Show existing screenshots
+        const images = data.screenshots_data || [];
+        if (images.length > 0) {
             const uid = currentUser?.id || data.user_id || 1;
-            document.getElementById('screenshot-current').innerHTML=`<img src="media/uploads/${uid}/${data.screenshot}" style="max-width:100%;max-height:100px;border-radius:6px;margin-top:6px">`;
+            document.getElementById('screenshot-current').innerHTML = '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Current Screenshots</div>' +
+                '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+                images.map(img => `<div style="position:relative"><img src="media/uploads/${uid}/${img.file}" style="height:60px;border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--text3);text-align:center;margin-top:2px">${img.label}</div></div>`).join('') +
+                '</div><div style="font-size:11px;color:var(--text3);margin-top:6px">Upload new images to replace, or leave empty to keep current.</div>';
+        } else if (data.screenshot) {
+            const uid = currentUser?.id || data.user_id || 1;
+            document.getElementById('screenshot-current').innerHTML=`<img src="media/uploads/${uid}/${data.screenshot}" style="max-width:100%;max-height:80px;border-radius:6px;margin-top:6px">`;
         }
     } else {
         const today=new Date().toISOString().split('T')[0];
@@ -148,26 +221,36 @@ async function saveTrade() {
     const fees = parseFloat(document.getElementById('f-fees')?.value || 0);
 
     if (result && entry && exit_p && lot) {
-        // Calculate approximate P&L
         const rawPnl = direction === 'Long' ? (exit_p - entry) * lot : (entry - exit_p) * lot;
         const netPnl = rawPnl - fees;
 
-        // Validate: Result must match P&L direction
         if (result === 'Loss' && netPnl > 0) {
-            toast('Result is "Loss" but P&L is positive ($' + netPnl.toFixed(2) + '). Please check your prices or change the result.', 'error');
+            toast('Result is "Loss" but P&L is positive ($' + netPnl.toFixed(2) + '). Check your prices or result.', 'error');
             return;
         }
         if (result === 'Win' && netPnl < 0) {
-            toast('Result is "Win" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Please check your prices or change the result.', 'error');
+            toast('Result is "Win" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Check your prices or result.', 'error');
             return;
         }
         if (result === 'Break Even' && netPnl < 0) {
-            toast('Result is "Break Even" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Please check your prices.', 'error');
+            toast('Result is "Break Even" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Check your prices.', 'error');
             return;
         }
     }
 
-    const fd=new FormData(form);
+    // ── File size validation (1MB per image) ──
+    for (let i = 1; i <= 4; i++) {
+        const inp = document.getElementById('f-screenshot_' + i);
+        if (inp && inp.files.length > 0) {
+            if (inp.files[0].size > 1048576) {
+                toast(`Screenshot ${i} exceeds 1MB limit (${(inp.files[0].size / 1048576).toFixed(1)}MB). Compress the image.`, 'error');
+                return;
+            }
+        }
+    }
+
+    // Always use FormData for multi-file support
+    const fd = new FormData(form);
     const tin_d=document.getElementById('f-time_in_date').value;
     const tin_t=document.getElementById('f-time_in_time').value;
     const tout_d=document.getElementById('f-time_out_date').value;
@@ -175,20 +258,19 @@ async function saveTrade() {
     if(tin_d&&tin_t) fd.set('time_in',tin_d+' '+tin_t+':00');
     if(tout_d&&tout_t) fd.set('time_out',tout_d+' '+tout_t+':00');
     if(id) fd.set('id',id);
-    const hasFile=document.getElementById('f-screenshot').files.length>0;
-    if(hasFile) {
-        const resp=await fetch(`${API}?action=${id?'update_trade':'add_trade'}`,{method:'POST',body:fd});
-        const r=await resp.json();
-        if(r.error){toast(r.error,'error');return;}
-    } else {
-        const data={};
-        ['trade_date','session','pair','direction','entry_price','stop_loss','take_profit','exit_price','lot_size','fees','result','confidence','exec_score','fib_level','fsa_rules','notes'].forEach(k=>{data[k]=document.getElementById('f-'+k)?.value||null;});
-        data.time_in=tin_d&&tin_t?tin_d+' '+tin_t+':00':null;
-        data.time_out=tout_d&&tout_t?tout_d+' '+tout_t+':00':null;
-        if(id) data.id=id;
-        const r=await api(id?'update_trade':'add_trade','POST',data);
-        if(r.error){toast(r.error,'error');return;}
+
+    // Pass existing screenshots data if editing (so server can keep them if no new uploads)
+    if (id) {
+        const t = allTrades.find(t => t.id == id);
+        if (t && t.screenshots) {
+            fd.set('existing_screenshots', t.screenshots);
+        }
     }
+
+    const resp = await fetch(`${API}?action=${id?'update_trade':'add_trade'}`,{method:'POST',body:fd});
+    const r = await resp.json();
+    if(r.error){toast(r.error,'error');return;}
+
     toast(id?'Trade updated!':'Trade added! ✅');
     document.getElementById('trade-modal').classList.remove('open');
     loadTrades(); loadDashboard();
