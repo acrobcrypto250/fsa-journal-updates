@@ -1,11 +1,11 @@
 {
-    "current_version": "3.4.2",
+    "current_version": "3.4.3",
     "release_date": "2026-03-31",
     "changelog": [
-        "Lightbox zoom: click any screenshot to view fullscreen with dark overlay",
-        "Press Escape or click background to close lightbox",
-        "Click zoomed image to open original in new tab",
-        "Save speed fix: trades without images save instantly via JSON instead of FormData"
+        "Lightbox with arrow navigation: browse all screenshots while zoomed in",
+        "Arrow keys (← →) navigate in lightbox, Escape closes",
+        "Timeframe tabs in lightbox for quick jumping",
+        "Save speed fix: trades without images save instantly via JSON"
     ],
     "files": [
         {"path": "js/trades.js", "critical": false}
