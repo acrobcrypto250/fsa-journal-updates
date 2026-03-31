@@ -1,13 +1,24 @@
 {
-    "current_version": "3.3.2",
+    "current_version": "3.4.0",
     "release_date": "2026-03-31",
     "changelog": [
-        "Trade validation: Loss must have negative P&L",
-        "Trade validation: Win must have positive P&L",
-        "Trade validation: Break Even must be zero or positive",
-        "Prevents conflicting result and P&L entries"
+        "Multi-image upload: up to 4 screenshots per trade (1MB each)",
+        "Timeframe labels: 4H, 1H, 15M, Entry, Exit, Other",
+        "Slideshow viewer in trade details with arrow navigation",
+        "Timeframe tabs for quick image switching",
+        "P&L vs Result validation (Loss must be negative, Win must be positive)",
+        "File size validation (1MB limit per image)",
+        "Backward compatible with existing single screenshots"
     ],
     "files": [
+        {"path": "modals/trade-modal.php", "critical": false},
+        {"path": "includes/controllers/TradeController.php", "critical": false},
         {"path": "js/trades.js", "critical": false}
+    ],
+    "db_migrations": [
+        {
+            "name": "add_screenshots_column",
+            "sql": "ALTER TABLE trades ADD COLUMN screenshots TEXT DEFAULT NULL"
+        }
     ]
 }
