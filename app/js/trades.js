@@ -1,4 +1,3 @@
-
 /**
  * FundedControl — Trades Module (v3.0.0 Phase 2)
  * Trade CRUD, table rendering, view trade, pairs management, checklist
@@ -139,6 +138,35 @@ async function deleteTrade(id){
 async function saveTrade() {
     const id=document.getElementById('trade-id').value;
     const form=document.getElementById('trade-form');
+
+    // ── P&L vs Result validation ──
+    const result = document.getElementById('f-result')?.value || '';
+    const entry = parseFloat(document.getElementById('f-entry_price')?.value || 0);
+    const exit_p = parseFloat(document.getElementById('f-exit_price')?.value || 0);
+    const direction = document.getElementById('f-direction')?.value || 'Long';
+    const lot = parseFloat(document.getElementById('f-lot_size')?.value || 0);
+    const fees = parseFloat(document.getElementById('f-fees')?.value || 0);
+
+    if (result && entry && exit_p && lot) {
+        // Calculate approximate P&L
+        const rawPnl = direction === 'Long' ? (exit_p - entry) * lot : (entry - exit_p) * lot;
+        const netPnl = rawPnl - fees;
+
+        // Validate: Result must match P&L direction
+        if (result === 'Loss' && netPnl > 0) {
+            toast('Result is "Loss" but P&L is positive ($' + netPnl.toFixed(2) + '). Please check your prices or change the result.', 'error');
+            return;
+        }
+        if (result === 'Win' && netPnl < 0) {
+            toast('Result is "Win" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Please check your prices or change the result.', 'error');
+            return;
+        }
+        if (result === 'Break Even' && netPnl < 0) {
+            toast('Result is "Break Even" but P&L is negative (-$' + Math.abs(netPnl).toFixed(2) + '). Please check your prices.', 'error');
+            return;
+        }
+    }
+
     const fd=new FormData(form);
     const tin_d=document.getElementById('f-time_in_date').value;
     const tin_t=document.getElementById('f-time_in_time').value;
