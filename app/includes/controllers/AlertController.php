@@ -1,8 +1,8 @@
-
 <?php
 /**
- * FundedControl — Alert Controller
+ * FundedControl — Alert Controller (v3.4.4)
  * Handles: get_alerts — uses active challenge settings
+ * Fixed: consecutive losses message depends on whether they happened today or across days
  */
 class AlertController {
     private $db;
@@ -43,12 +43,21 @@ class AlertController {
 
         if ($tc >= 2) $alerts[] = ['type' => 'info', 'icon' => 'ℹ️', 'msg' => 'You have taken ' . $tc . ' trades today — max recommended is 2'];
 
-        // Consecutive losses
-        $last3 = $this->db->prepare("SELECT result FROM trades WHERE user_id=? AND (challenge_id=? OR challenge_id IS NULL) AND result IN ('Win','Loss') ORDER BY trade_date DESC, id DESC LIMIT 3");
+        // Consecutive losses — check last 3 results with dates
+        $last3 = $this->db->prepare("SELECT result, trade_date FROM trades WHERE user_id=? AND (challenge_id=? OR challenge_id IS NULL) AND result IN ('Win','Loss') ORDER BY trade_date DESC, id DESC LIMIT 3");
         $last3->execute([$this->uid, $chId]);
         $r3 = $last3->fetchAll();
-        if (count($r3) >= 3 && array_sum(array_map(fn($r) => $r['result'] === 'Loss' ? 1 : 0, $r3)) >= 3)
-            $alerts[] = ['type' => 'danger', 'icon' => '🚨', 'msg' => '3 consecutive losses — consider stopping for the day'];
+        if (count($r3) >= 3 && $r3[0]['result'] === 'Loss' && $r3[1]['result'] === 'Loss' && $r3[2]['result'] === 'Loss') {
+            // Check if all 3 losses were today
+            $todayDate = date('Y-m-d');
+            $allToday = ($r3[0]['trade_date'] === $todayDate && $r3[1]['trade_date'] === $todayDate && $r3[2]['trade_date'] === $todayDate);
+
+            if ($allToday) {
+                $alerts[] = ['type' => 'danger', 'icon' => '🛑', 'msg' => '3 consecutive losses TODAY — stop trading, protect your account'];
+            } else {
+                $alerts[] = ['type' => 'warning', 'icon' => '🚨', 'msg' => '3 consecutive losses — review your setups before the next trade'];
+            }
+        }
 
         jsonResponse($alerts);
     }
