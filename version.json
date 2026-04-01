@@ -1,13 +1,12 @@
 {
-    "current_version": "3.4.3",
+    "current_version": "3.4.4",
     "release_date": "2026-03-31",
     "changelog": [
-        "Lightbox with arrow navigation: browse all screenshots while zoomed in",
-        "Arrow keys (← →) navigate in lightbox, Escape closes",
-        "Timeframe tabs in lightbox for quick jumping",
-        "Save speed fix: trades without images save instantly via JSON"
+        "Fixed consecutive loss alert: different messages for same-day vs multi-day",
+        "3 losses TODAY = STOP TRADING (danger)",
+        "3 losses across days = review your setups (warning)"
     ],
     "files": [
-        {"path": "js/trades.js", "critical": false}
+        {"path": "includes/controllers/AlertController.php", "critical": false}
     ]
 }
